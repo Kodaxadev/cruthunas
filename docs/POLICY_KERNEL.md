@@ -14,6 +14,12 @@ cruthunas adapters check
 
 `--changed` currently runs the complete cross-file policy graph. Diff-aware enforcement will be added without weakening these whole-repository checks.
 
+## Skill scope
+
+Policy-kernel v0.1 ships one canonical umbrella skill, `cruthunas-govern`, with generated Claude and Codex adapters. It routes governed work across Gates 0–10 and does not claim that every specialized workflow in `docs/EXECUTION_ARCHITECTURE.md` is separately implemented.
+
+The specialized skills described in the architecture are a planned decomposition. They will be extracted only when their corresponding CLI workflows and evaluation fixtures exist. Empty skill stubs do not satisfy that design.
+
 ## Enforced invariants
 
 - The claim ledger validates against its schema.

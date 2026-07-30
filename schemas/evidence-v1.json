@@ -8,7 +8,7 @@
     "schema_version": {"const": 1},
     "id": {"type": "string", "pattern": "^E-[A-Z][0-9]{3,}-[0-9]{4,}$"},
     "claim_id": {"type": "string", "pattern": "^[A-Z][0-9]{3,}$"},
-    "class": {"enum": ["ATTRIBUTION", "CHARTER", "BASELINE", "PROOF", "COMPUTATION", "REPRODUCTION", "FORMALIZATION", "REVIEW_INTERNAL", "REVIEW_EXTERNAL", "MANUSCRIPT_AUDIT", "RELEASE", "CORRECTION", "REFUTATION"]},
+    "class": {"enum": ["ATTRIBUTION", "CHARTER", "BASELINE", "CLAIM_REGISTRATION", "PROOF", "COMPUTATION", "REPRODUCTION", "FORMALIZATION", "REVIEW_INTERNAL", "REVIEW_EXTERNAL", "MANUSCRIPT_AUDIT", "RELEASE", "CORRECTION", "REFUTATION"]},
     "created_at": {"type": "string", "format": "date-time"},
     "created_by": {"$ref": "#/$defs/actor"},
     "reviewer": {"$ref": "#/$defs/actor"},
@@ -20,7 +20,7 @@
     "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "notes": {"type": ["string", "null"]}
   },
-  "allOf": [{"if": {"properties": {"class": {"const": "REVIEW_EXTERNAL"}}}, "then": {"required": ["reviewer"]}}],
+  "allOf": [{"if": {"properties": {"class": {"const": "REVIEW_EXTERNAL"}}, "required": ["class"]}, "then": {"required": ["reviewer"]}}],
   "$defs": {"actor": {"type": "object", "required": ["type", "id"], "properties": {"type": {"enum": ["human", "agent", "policy", "venue"]}, "id": {"type": "string", "minLength": 1}}, "additionalProperties": false}},
   "additionalProperties": false
 }

@@ -38,6 +38,33 @@ specification → schema/policy → CI → local hooks → agent skills → agen
 
 Agent skills guide repeatable work. Hooks catch mistakes early. CI independently enforces merge and release policy. None of these mechanisms confer mathematical external review; that requires a named independent human or documented venue process.
 
+The first deterministic policy kernel currently provides:
+
+- claim-ledger, evidence, transition, adoption-manifest, and exemption schemas;
+- semantic checks for dependencies, evidence-backed statuses, registration history, and transition chains;
+- workflow action pinning and generated-binary checks;
+- independent-verifier import-boundary checks;
+- generated Claude/Codex skill adapters with drift detection;
+- `cruthunas check`, `cruthunas status`, and adapter commands;
+- pre-commit, commit-message, pre-push, and Claude Code hooks;
+- a pinned reusable GitHub Actions policy workflow and regression tests.
+
+## Development quick start
+
+```bash
+python -m pip install --requirement requirements/policy.txt --editable .
+python -m pytest
+cruthunas adapters check
+cruthunas check --all
+```
+
+Install local Git hooks after the policy checks pass:
+
+```bash
+python -m pip install pre-commit
+pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
 ## Lifecycle gates
 
 The canonical lifecycle is defined in [`RESEARCH_CHARTER.md`](RESEARCH_CHARTER.md):
@@ -56,11 +83,11 @@ The canonical lifecycle is defined in [`RESEARCH_CHARTER.md`](RESEARCH_CHARTER.m
 
 ## Repository layout
 
-See [`docs/STRUCTURE.md`](docs/STRUCTURE.md) for the governed-project layout. The framework repository will additionally publish portable skills, schemas, a policy CLI, hook wiring, reusable GitHub Actions workflows, templates, and migration guides.
+See [`docs/STRUCTURE.md`](docs/STRUCTURE.md) for the governed-project layout. The framework repository publishes portable skills, schemas, the policy CLI, hook wiring, reusable GitHub Actions workflows, templates, and migration guidance.
 
 ## Status
 
-This project is at maturity level **CR-0 — Exploration**. The specification and execution architecture exist, but the deterministic policy kernel, tested hooks, required CI, and first end-to-end governed case are not yet complete. No reliability or conformance claim is made yet.
+This project remains **CR-0 — Exploration**. The first deterministic policy kernel is implemented and tested on the draft execution-layer branch, but no framework release or end-to-end governed claim has been completed. No project should claim Cruthúnas conformance against an unreleased moving branch.
 
 ## License
 

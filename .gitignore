@@ -1,0 +1,47 @@
+# Cruthúnas .gitignore
+#
+# Generated build artifacts (PDFs, compiled binaries) are never committed.
+# The tagged release carries the final PDF; working PDFs stay out of history.
+
+# Manuscript build output
+manuscript/**/*.pdf
+manuscript/**/*.aux
+manuscript/**/*.log
+manuscript/**/*.out
+manuscript/**/*.toc
+manuscript/**/*.synctex.gz
+manuscript/**/build/
+
+# Generated binaries
+*.exe
+*.o
+*.so
+*.dylib
+*.dll
+target/
+dist/
+build/
+
+# Formal verification build artifacts
+formal/**/.lake/
+formal/**/lake-packages/
+formal/**/build/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Environment / secrets
+.env
+.env.local

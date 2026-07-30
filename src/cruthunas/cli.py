@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .adapters import check_adapters, sync_adapters
 from .models import discover_root
 from .policy import format_text, run_checks
 
@@ -40,6 +41,25 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--root", type=Path, default=Path.cwd())
     check.add_argument("--json", action="store_true", dest="as_json")
 
+    adapters = subcommands.add_parser(
+        "adapters",
+        help="Synchronize tool-specific skill adapters",
+    )
+    adapter_commands = adapters.add_subparsers(
+        dest="adapter_command",
+        required=True,
+    )
+    adapter_sync = adapter_commands.add_parser(
+        "sync",
+        help="Regenerate Claude and Codex skill adapters",
+    )
+    adapter_sync.add_argument("--root", type=Path, default=Path.cwd())
+    adapter_check = adapter_commands.add_parser(
+        "check",
+        help="Fail when generated adapters drift",
+    )
+    adapter_check.add_argument("--root", type=Path, default=Path.cwd())
+
     status = subcommands.add_parser(
         "status",
         help="Print a machine-readable policy summary",
@@ -57,6 +77,20 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         print(f"cruthunas: {exc}", file=sys.stderr)
         return 2
+
+    if args.command == "adapters":
+        if args.adapter_command == "sync":
+            manifest = sync_adapters(root)
+            print(f"Synchronized {len(manifest['skills'])} skill adapter(s).")
+            return 0
+        errors = check_adapters(root)
+        if errors:
+            print("Adapter check failed:")
+            for error in errors:
+                print(f"- {error}")
+            return 1
+        print("Adapter check passed.")
+        return 0
 
     result = run_checks(root)
     if args.command == "check":

@@ -6,6 +6,7 @@ from .claims_check import check_claims
 from .models import CheckResult
 from .project_check import check_project
 from .records_check import check_records
+from .repository_check import check_repository
 
 
 def run_checks(root: Path) -> CheckResult:
@@ -14,6 +15,7 @@ def run_checks(root: Path) -> CheckResult:
     evidence, transitions, record_findings = check_records(root, claims)
     findings.extend(record_findings)
     findings.extend(check_project(root))
+    findings.extend(check_repository(root))
     findings.sort(key=lambda item: (item.path, item.code, item.message))
     return CheckResult(
         root=str(root),

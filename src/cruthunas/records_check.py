@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Finding, load_and_validate, path_exists, yaml_files
+from .transition_check import check_transition_semantics
 
 
 EVIDENCE_FOR = {
@@ -188,6 +189,7 @@ def check_records(
     evidence, findings = _evidence(root, claims)
     transitions, transition_findings = _transitions(root, claims, evidence)
     findings.extend(transition_findings)
+    findings.extend(check_transition_semantics(root, claims, evidence))
     findings.extend(_claim_support(claims, evidence))
     schema = root / "schemas/exemption-v1.json"
     for path in yaml_files(root, "audit/exemptions"):

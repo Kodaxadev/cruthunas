@@ -67,6 +67,39 @@ def _project(tmp_path: Path, claims: list[dict]) -> Path:
     return tmp_path
 
 
+def _evidence(evidence_id: str, evidence_class: str) -> dict:
+    return {
+        "schema_version": 1,
+        "id": evidence_id,
+        "claim_id": "T001",
+        "class": evidence_class,
+        "created_at": "2026-07-30T19:00:00Z",
+        "created_by": {"type": "human", "id": "github:tester"},
+        "establishes": [f"Fixture evidence class {evidence_class}"],
+        "does_not_establish": ["Anything outside this fixture"],
+        "artifacts": [],
+        "commands": [],
+        "environment": None,
+        "source_revision": "a" * 40,
+        "notes": None,
+    }
+
+
+def _transition(axis: str, before, after, evidence_id: str, timestamp: str) -> dict:
+    return {
+        "schema_version": 1,
+        "claim_id": "T001",
+        "axis": axis,
+        "from": before,
+        "to": after,
+        "requested_by": "github:tester",
+        "approved_by": {"type": "policy", "id": "fixture-policy"},
+        "evidence": [evidence_id],
+        "reason": "Fixture transition",
+        "created_at": timestamp,
+    }
+
+
 def test_empty_ledger_is_valid(tmp_path: Path) -> None:
     result = run_checks(_project(tmp_path, []))
     assert result.ok, result.to_dict()
@@ -92,33 +125,57 @@ def test_external_review_requires_evidence(tmp_path: Path) -> None:
 
 
 def test_valid_computational_claim(tmp_path: Path) -> None:
-    evidence_id = "E-T001-0001"
+    registration_id = "E-T001-0001"
+    reproduction_id = "E-T001-0002"
     claim = _claim(
         epistemic_status="COMPUTATIONAL",
         verification_statuses=["INDEPENDENT_REPRODUCTION"],
-        evidence=[evidence_id],
-        computational_support=[evidence_id],
+        evidence=[registration_id, reproduction_id],
+        computational_support=[reproduction_id],
     )
     root = _project(tmp_path, [claim])
-    evidence = {
-        "schema_version": 1,
-        "id": evidence_id,
-        "claim_id": "T001",
-        "class": "REPRODUCTION",
-        "created_at": "2026-07-30T19:00:00Z",
-        "created_by": {"type": "human", "id": "github:tester"},
-        "establishes": ["The declared finite range reproduces"],
-        "does_not_establish": ["Any universal statement"],
-        "artifacts": [],
-        "commands": ["python verify.py"],
-        "environment": None,
-        "source_revision": "a" * 40,
-        "notes": None,
-    }
-    _write(
-        root / f"audit/evidence/T001/{evidence_id}.yaml",
-        yaml.safe_dump(evidence, sort_keys=False),
+    for evidence_id, evidence_class in (
+        (registration_id, "CLAIM_REGISTRATION"),
+        (reproduction_id, "REPRODUCTION"),
+    ):
+        _write(
+            root / f"audit/evidence/T001/{evidence_id}.yaml",
+            yaml.safe_dump(
+                _evidence(evidence_id, evidence_class),
+                sort_keys=False,
+            ),
+        )
+    transitions = (
+        (
+            "20260730T190100Z-gate-4.yaml",
+            _transition("gate", 3, 4, registration_id, "2026-07-30T19:01:00Z"),
+        ),
+        (
+            "20260730T190200Z-epistemic.yaml",
+            _transition(
+                "epistemic",
+                "OPEN",
+                "COMPUTATIONAL",
+                reproduction_id,
+                "2026-07-30T19:02:00Z",
+            ),
+        ),
+        (
+            "20260730T190300Z-verification.yaml",
+            _transition(
+                "verification",
+                ["UNCHECKED"],
+                ["INDEPENDENT_REPRODUCTION"],
+                reproduction_id,
+                "2026-07-30T19:03:00Z",
+            ),
+        ),
     )
+    for name, transition in transitions:
+        _write(
+            root / f"audit/transitions/T001/{name}",
+            yaml.safe_dump(transition, sort_keys=False),
+        )
     result = run_checks(root)
     assert result.ok, result.to_dict()
 
@@ -184,3 +241,25 @@ def test_commit_message_contract() -> None:
     assert valid_message("policy: add validator")
     assert valid_message("transition(T018): HEURISTIC -> PROVED")
     assert not valid_message("update stuff")
+
+
+def test_unpinned_action_fails(tmp_path: Path) -> None:
+    root = _project(tmp_path, [])
+    _write(
+        root / ".github/workflows/bad.yml",
+        "name: bad\non: push\njobs:\n  bad:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+    )
+    result = run_checks(root)
+    assert "workflow.unpinned_action" in {
+        finding.code for finding in result.findings
+    }
+
+
+def test_independent_verifier_cannot_import_project(tmp_path: Path) -> None:
+    root = _project(tmp_path, [])
+    _write(root / "src/projectcore/__init__.py", "")
+    _write(root / "independent/check.py", "import projectcore\n")
+    result = run_checks(root)
+    assert "independent.project_import" in {
+        finding.code for finding in result.findings
+    }

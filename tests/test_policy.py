@@ -155,3 +155,32 @@ def test_project_manifest_rejects_moving_ref(tmp_path: Path) -> None:
     assert "project.moving_version" in {
         finding.code for finding in result.findings
     }
+
+
+def test_adapter_sync_detects_drift(tmp_path: Path) -> None:
+    from cruthunas.adapters import check_adapters, sync_adapters
+
+    _write(
+        tmp_path / "skills/example/SKILL.md",
+        "---\nname: example\n---\n# Example\n",
+    )
+    sync_adapters(tmp_path)
+    assert check_adapters(tmp_path) == []
+    _write(tmp_path / ".claude/skills/example/SKILL.md", "drift\n")
+    assert any("adapter drift" in item for item in check_adapters(tmp_path))
+
+
+def test_command_guard_blocks_bulk_stage() -> None:
+    from hooks.claude_guard import command_denial
+
+    assert command_denial("git add -A")
+    assert command_denial("npm test && git add .")
+    assert command_denial("git add claims/claims.yaml") is None
+
+
+def test_commit_message_contract() -> None:
+    from hooks.commit_message import valid_message
+
+    assert valid_message("policy: add validator")
+    assert valid_message("transition(T018): HEURISTIC -> PROVED")
+    assert not valid_message("update stuff")

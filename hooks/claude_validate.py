@@ -40,6 +40,12 @@ def main() -> int:
             "CLAUDE_PROJECT_DIR",
             payload.get("cwd", "."),
         )
+    ).resolve()
+    environment = os.environ.copy()
+    source_root = str(root / "src")
+    existing = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        source_root if not existing else source_root + os.pathsep + existing
     )
     result = subprocess.run(
         [
@@ -53,6 +59,7 @@ def main() -> int:
         ],
         capture_output=True,
         text=True,
+        env=environment,
     )
     if result.returncode == 0:
         return 0

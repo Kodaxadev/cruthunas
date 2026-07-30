@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cruthúnas Claim Record",
+  "type": "object",
+  "required": [
+    "id",
+    "statement",
+    "epistemic_status",
+    "verification_status",
+    "publication_status",
+    "dependencies",
+    "source_document",
+    "introduced_commit",
+    "last_changed_commit"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][0-9]{3,}$",
+      "description": "Permanent claim identifier, e.g. T018, L003."
+    },
+    "statement": {
+      "type": "string",
+      "description": "Exact registered statement of the claim."
+    },
+    "epistemic_status": {
+      "type": "string",
+      "enum": ["OPEN", "HEURISTIC", "COMPUTATIONAL", "PROVED", "REFUTED"]
+    },
+    "verification_status": {
+      "type": "string",
+      "enum": ["UNCHECKED", "INTERNAL_AUDIT", "INDEPENDENT_REPRODUCTION", "FORMALIZED", "EXTERNAL_REVIEW"]
+    },
+    "publication_status": {
+      "type": "string",
+      "enum": ["WORKING", "FROZEN", "PREPRINT", "SUBMITTED", "PUBLISHED", "CORRECTED", "WITHDRAWN"]
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "source_document": { "type": "string" },
+    "proof_location": { "type": ["string", "null"] },
+    "computational_support": { "type": ["string", "null"] },
+    "formal_declaration": { "type": ["string", "null"] },
+    "independent_review": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "complete", "n/a"]
+    },
+    "limitations": { "type": "string" },
+    "introduced_commit": { "type": "string" },
+    "last_changed_commit": { "type": "string" }
+  },
+  "additionalProperties": false
+}

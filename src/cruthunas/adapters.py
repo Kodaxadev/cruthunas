@@ -12,6 +12,10 @@ MANIFEST = ".cruthunas/adapters.json"
 
 def _digest(path: Path) -> str:
     data = path.read_bytes()
+    # Git may convert LF repository blobs to CRLF in Windows working trees.
+    # Normalize that checkout-only transformation so the recorded blob hash
+    # remains stable across platforms while content changes still cause drift.
+    data = data.replace(b"\r\n", b"\n")
     header = f"blob {len(data)}\0".encode("ascii")
     return hashlib.sha1(header + data).hexdigest()
 

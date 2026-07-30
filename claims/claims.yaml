@@ -1,28 +1,40 @@
 # Cruthúnas claim ledger.
 #
-# This file is the canonical, machine-readable record of every registered claim.
-# Markdown tables and reports are generated FROM this file, never maintained
-# separately. Each entry must validate against schema.json.
+# This file is the canonical machine-readable record of every registered claim.
+# Generated Markdown tables and reports derive from this file and are never
+# maintained as independent sources of truth.
 #
-# No entry is added here until it has passed Gate 4 (Claim Registration) in
-# RESEARCH_CHARTER.md. Exploration notes belong in docs/research-logs/ instead.
+# Exploration remains in docs/research-logs/ until Gate 4 claim registration.
+# Status changes require linked evidence and a record under audit/transitions/.
 #
-# Example entry (commented out — remove the leading '#' characters and fill in
-# real values when registering the first real claim):
+# Example only:
 #
 # - id: T001
-#   statement: "..."
-#   epistemic_status: OPEN
-#   verification_status: UNCHECKED
+#   kind: THEOREM
+#   title: "Finite stabilization for a bounded start set"
+#   statement: "For every integer start s with 1 <= s <= 259, ..."
+#   scope: "Integer starts 1 through 259 inclusive"
+#   epistemic_status: COMPUTATIONAL
+#   verification_statuses:
+#     - INTERNAL_AUDIT
+#     - INDEPENDENT_REPRODUCTION
 #   publication_status: WORKING
-#   dependencies: []
-#   source_document: docs/proofs/example.md
+#   gate: 6
+#   dependencies: [L001]
+#   evidence:
+#     - E-T001-0001
+#     - E-T001-0002
+#   source_document: docs/proofs/T001.md
 #   proof_location: null
-#   computational_support: null
-#   formal_declaration: null
-#   independent_review: pending
-#   limitations: ""
-#   introduced_commit: ""
-#   last_changed_commit: ""
+#   computational_support:
+#     - E-T001-0001
+#     - E-T001-0002
+#   formal_declarations: []
+#   external_reviews: []
+#   limitations:
+#     - "Does not establish the corresponding universal claim."
+#   introduced_at: "2026-07-30T19:00:00Z"
+#   updated_at: "2026-07-30T19:00:00Z"
 
+schema_version: 1
 claims: []

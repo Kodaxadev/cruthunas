@@ -1,0 +1,28 @@
+# Cruthúnas claim ledger.
+#
+# This file is the canonical, machine-readable record of every registered claim.
+# Markdown tables and reports are generated FROM this file, never maintained
+# separately. Each entry must validate against schema.json.
+#
+# No entry is added here until it has passed Gate 4 (Claim Registration) in
+# RESEARCH_CHARTER.md. Exploration notes belong in docs/research-logs/ instead.
+#
+# Example entry (commented out — remove the leading '#' characters and fill in
+# real values when registering the first real claim):
+#
+# - id: T001
+#   statement: "..."
+#   epistemic_status: OPEN
+#   verification_status: UNCHECKED
+#   publication_status: WORKING
+#   dependencies: []
+#   source_document: docs/proofs/example.md
+#   proof_location: null
+#   computational_support: null
+#   formal_declaration: null
+#   independent_review: pending
+#   limitations: ""
+#   introduced_commit: ""
+#   last_changed_commit: ""
+
+claims: []

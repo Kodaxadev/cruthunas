@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cruthunas"
+version = "0.1.0a0"
+description = "Deterministic policy kernel for the Cruthunas research governance protocol"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "TBD" }
+authors = [{ name = "Kodaxa" }]
+dependencies = [
+  "PyYAML==6.0.3",
+  "jsonschema[format]==4.26.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.0.2"]
+
+[project.scripts]
+cruthunas = "cruthunas.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruthunas"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

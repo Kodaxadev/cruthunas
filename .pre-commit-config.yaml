@@ -11,6 +11,12 @@ repos:
           - jsonschema[format]==4.26.0
         pass_filenames: false
         stages: [pre-commit, pre-push]
+      - id: cruthunas-adapters
+        name: Cruthunas adapter drift
+        entry: python -m cruthunas adapters check
+        language: python
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
       - id: cruthunas-commit-message
         name: Cruthunas commit-message contract
         entry: python hooks/commit_message.py

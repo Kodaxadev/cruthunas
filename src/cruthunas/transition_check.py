@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,31 @@ DEFAULT_STATE: dict[str, Any] = {
     "verification": ["UNCHECKED"],
     "publication": "WORKING",
 }
+_MIN_TIMESTAMP = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _normalized(axis: str, value: Any) -> Any:
     if axis == "verification" and isinstance(value, list):
         return sorted(value)
     return value
+
+
+def _timestamp_value(record: dict[str, Any]) -> datetime | None:
+    value = record.get("created_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _transition_sort_key(item: tuple[Path, dict[str, Any]]) -> tuple[datetime, str]:
+    path, record = item
+    return (_timestamp_value(record) or _MIN_TIMESTAMP, str(path))
 
 
 def _human_approver(record: dict[str, Any]) -> str | None:
@@ -73,6 +93,7 @@ def check_transition_semantics(
         selected_ids = record.get("evidence", [])
         selected_records: list[dict[str, Any]] = []
         all_present = isinstance(selected_ids, list)
+        transition_time = _timestamp_value(record)
         for evidence_id in selected_ids if isinstance(selected_ids, list) else []:
             evidence_record = evidence.get(evidence_id)
             if evidence_record is None:
@@ -84,6 +105,19 @@ def check_transition_semantics(
                         Finding(
                             "transition.foreign_evidence",
                             f"Transition for {claim_id} uses evidence owned by {evidence_record.get('claim_id')}: {evidence_id}",
+                            relative,
+                        )
+                    )
+                evidence_time = _timestamp_value(evidence_record)
+                if (
+                    transition_time is not None
+                    and evidence_time is not None
+                    and evidence_time > transition_time
+                ):
+                    findings.append(
+                        Finding(
+                            "transition.future_evidence",
+                            f"Transition evidence {evidence_id} was created after the transition",
                             relative,
                         )
                     )
@@ -108,12 +142,27 @@ def check_transition_semantics(
                 )
 
     for (claim_id, axis), items in grouped.items():
-        items.sort(key=lambda item: str(item[1].get("created_at", "")))
+        items.sort(key=_transition_sort_key)
         previous_to: Any = None
+        previous_time: datetime | None = None
         for index, (path, record) in enumerate(items):
             relative = str(path.relative_to(root))
             before = _normalized(axis, record.get("from"))
             after = _normalized(axis, record.get("to"))
+            current_time = _timestamp_value(record)
+            if (
+                index
+                and current_time is not None
+                and previous_time is not None
+                and current_time <= previous_time
+            ):
+                findings.append(
+                    Finding(
+                        "transition.non_increasing_timestamp",
+                        f"Transition timestamps for {claim_id}/{axis} must be strictly increasing",
+                        relative,
+                    )
+                )
             if before == after:
                 findings.append(
                     Finding(
@@ -144,6 +193,7 @@ def check_transition_semantics(
                     )
                 )
             previous_to = after
+            previous_time = current_time
 
         claim = claims.get(claim_id)
         if claim is None:
@@ -169,7 +219,7 @@ def check_transition_semantics(
                 )
             )
         else:
-            gate_items.sort(key=lambda item: str(item[1].get("created_at", "")))
+            gate_items.sort(key=_transition_sort_key)
             first_path, first = gate_items[0]
             relative = str(first_path.relative_to(root))
             if first.get("from") != 3 or first.get("to") != 4:

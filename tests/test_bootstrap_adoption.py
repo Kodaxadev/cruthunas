@@ -38,13 +38,29 @@ def _plan(root: Path, **updates):
     return plan_project_init(root, **_kwargs(**updates))
 
 
-def test_init_dry_run_json_writes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    code = main([
-        "init", "--root", str(tmp_path), "--mode", "experimental",
-        "--framework-commit", FRAMEWORK_COMMIT, "--project-id", "fixture",
-        "--project-title", "Fixture Project", "--maintainer-github", "tester",
-        "--dry-run", "--json",
-    ])
+def test_init_dry_run_json_writes_nothing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(
+        [
+            "init",
+            "--root",
+            str(tmp_path),
+            "--mode",
+            "experimental",
+            "--framework-commit",
+            FRAMEWORK_COMMIT,
+            "--project-id",
+            "fixture",
+            "--project-title",
+            "Fixture Project",
+            "--maintainer-github",
+            "tester",
+            "--dry-run",
+            "--json",
+        ]
+    )
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["operation"] == "project.init"
@@ -59,10 +75,15 @@ def test_init_applies_minimum_structure_and_full_policy_passes(tmp_path: Path) -
     result = apply_plan(_plan(tmp_path))
     assert result["applied"] is True
     expected = {
-        ".cruthunas/project.yaml", "claims/claims.yaml", "claims/schema.json",
-        "RESEARCH_CHARTER.md", "schemas/project-v1.json",
-        "schemas/claim-proposal-v1.json", "schemas/evidence-v1.json",
-        "schemas/transition-v1.json", "schemas/exemption-v1.json",
+        ".cruthunas/project.yaml",
+        "claims/claims.yaml",
+        "claims/schema.json",
+        "RESEARCH_CHARTER.md",
+        "schemas/project-v1.json",
+        "schemas/claim-proposal-v1.json",
+        "schemas/evidence-v1.json",
+        "schemas/transition-v1.json",
+        "schemas/exemption-v1.json",
         "schemas/framework-release-v1.json",
     }
     assert set(result["writes"]) == expected
@@ -70,7 +91,8 @@ def test_init_applies_minimum_structure_and_full_policy_passes(tmp_path: Path) -
     assert manifest["mode"] == "experimental"
     assert manifest["conformance"] == "non-conformant"
     assert manifest["framework"] == {
-        "repository": "Kodaxadev/cruthunas", "commit": FRAMEWORK_COMMIT,
+        "repository": "Kodaxadev/cruthunas",
+        "commit": FRAMEWORK_COMMIT,
     }
     policy = run_checks(tmp_path)
     assert policy.ok, policy.to_dict()
@@ -93,6 +115,16 @@ def test_partial_existing_structure_is_refused(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "legacy: true\n"
 
 
+def test_partial_existing_evidence_manifest_is_refused(tmp_path: Path) -> None:
+    target = tmp_path / "audit/evidence-manifest.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("schema_version: 1\n", encoding="utf-8")
+    with pytest.raises(TransactionError, match="refuses to overwrite") as caught:
+        _plan(tmp_path)
+    assert "audit/evidence-manifest.yaml" in caught.value.details["conflicts"]
+    assert target.read_text(encoding="utf-8") == "schema_version: 1\n"
+
+
 def test_conflicting_destination_directory_is_refused(tmp_path: Path) -> None:
     (tmp_path / "schemas/project-v1.json").mkdir(parents=True)
     with pytest.raises(TransactionError, match="refuses to overwrite"):
@@ -103,7 +135,12 @@ def test_release_manifest_path_traversal_is_refused(tmp_path: Path) -> None:
     outside = tmp_path.parent / "release.json"
     outside.write_text("{}", encoding="utf-8")
     with pytest.raises(TransactionError, match="escapes"):
-        _plan(tmp_path, mode="released", framework_version="v1.0.0", framework_release_manifest="../release.json")
+        _plan(
+            tmp_path,
+            mode="released",
+            framework_version="v1.0.0",
+            framework_release_manifest="../release.json",
+        )
 
 
 def test_stale_initialization_target_is_rejected(tmp_path: Path) -> None:
@@ -117,12 +154,17 @@ def test_stale_initialization_target_is_rejected(tmp_path: Path) -> None:
     assert not (tmp_path / ".cruthunas/project.yaml").exists()
 
 
-def test_initialization_rolls_back_after_post_write_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_initialization_rolls_back_after_post_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     plan = _plan(tmp_path)
     failure = CheckResult(
         root=str(tmp_path),
         findings=(Finding("project.synthetic_failure", "synthetic", ".cruthunas/project.yaml"),),
-        claim_count=0, evidence_count=0, transition_count=0,
+        claim_count=0,
+        evidence_count=0,
+        transition_count=0,
     )
     monkeypatch.setattr("cruthunas.transaction_plan.run_checks", lambda _root: failure)
     with pytest.raises(TransactionError, match="post-write validation"):
@@ -142,38 +184,67 @@ def test_released_mode_requires_release_attestation(tmp_path: Path) -> None:
 
 
 def test_released_mode_rejects_moving_framework_version(tmp_path: Path) -> None:
-    (tmp_path / "framework-release.json").write_text("{}", encoding="utf-8")
+    release = tmp_path / "framework-release.json"
+    release.write_text("{}", encoding="utf-8")
     with pytest.raises(TransactionError, match="Moving framework version"):
-        _plan(tmp_path, mode="released", framework_version="main", framework_release_manifest="framework-release.json")
+        _plan(
+            tmp_path,
+            mode="released",
+            framework_version="main",
+            framework_release_manifest="framework-release.json",
+        )
 
 
 def test_released_mode_rejects_mismatched_release_attestation(tmp_path: Path) -> None:
     release = {
         "schema_version": 1,
-        "framework": {"repository": "Kodaxadev/cruthunas", "version": "v1.0.0", "commit": "a" * 40},
+        "framework": {
+            "repository": "Kodaxadev/cruthunas",
+            "version": "v1.0.0",
+            "commit": "a" * 40,
+        },
         "released_at": "2026-07-31T18:00:00Z",
     }
-    (tmp_path / "framework-release.json").write_text(json.dumps(release), encoding="utf-8")
+    (tmp_path / "framework-release.json").write_text(
+        json.dumps(release), encoding="utf-8"
+    )
     with pytest.raises(TransactionError, match="does not match"):
-        _plan(tmp_path, mode="released", framework_version="v1.0.0", framework_release_manifest="framework-release.json")
+        _plan(
+            tmp_path,
+            mode="released",
+            framework_version="v1.0.0",
+            framework_release_manifest="framework-release.json",
+        )
 
 
 def test_released_mode_requires_and_preserves_exact_release_evidence(tmp_path: Path) -> None:
     release = {
         "schema_version": 1,
-        "framework": {"repository": "Kodaxadev/cruthunas", "version": "v1.0.0", "commit": FRAMEWORK_COMMIT},
+        "framework": {
+            "repository": "Kodaxadev/cruthunas",
+            "version": "v1.0.0",
+            "commit": FRAMEWORK_COMMIT,
+        },
         "released_at": "2026-07-31T18:00:00Z",
         "release_url": "https://example.invalid/releases/v1.0.0",
     }
     release_path = tmp_path / "framework-release.json"
     release_bytes = json.dumps(release, sort_keys=True).encode("utf-8")
     release_path.write_bytes(release_bytes)
-    apply_plan(_plan(tmp_path, mode="released", framework_version="v1.0.0", framework_release_manifest="framework-release.json"))
+    apply_plan(
+        _plan(
+            tmp_path,
+            mode="released",
+            framework_version="v1.0.0",
+            framework_release_manifest="framework-release.json",
+        )
+    )
     manifest = read_yaml(tmp_path / ".cruthunas/project.yaml")
     assert manifest["mode"] == "released"
     assert manifest["conformance"] == "not-claimed"
     assert manifest["framework"]["release"] == {
-        "manifest": "framework-release.json", "sha256": hashlib.sha256(release_bytes).hexdigest(),
+        "manifest": "framework-release.json",
+        "sha256": hashlib.sha256(release_bytes).hexdigest(),
     }
     assert run_checks(tmp_path).ok
 
@@ -183,34 +254,74 @@ def test_adoption_gap_report_is_deterministic_and_non_mutating(tmp_path: Path) -
     (tmp_path / "docs/ledger.md").write_text("Claims K4 and CJ1.\n", encoding="utf-8")
     (tmp_path / ".github/workflows").mkdir(parents=True)
     (tmp_path / ".github/workflows/test.yml").write_text(
-        "steps:\n  - uses: actions/checkout@v4\ncontainer:\n  image: python:3.13\n", encoding="utf-8"
+        "steps:\n  - uses: actions/checkout@v4\ncontainer:\n  image: python:3.13\n",
+        encoding="utf-8",
     )
     (tmp_path / "Dockerfile").write_text("FROM python:3.13\n", encoding="utf-8")
     (tmp_path / "skills/example").mkdir(parents=True)
     (tmp_path / "skills/example/SKILL.md").write_text("# Example\n", encoding="utf-8")
     evidence = tmp_path / "audit/evidence/T001/legacy.yaml"
     evidence.parent.mkdir(parents=True)
-    evidence.write_text(yaml.safe_dump({"class": "REPRODUCTION", "details": {}}), encoding="utf-8")
-    (tmp_path / "audit/evidence-manifest.md").write_text("# Historical manifest\n", encoding="utf-8")
-    before = {str(path.relative_to(tmp_path)): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    evidence.write_text(
+        yaml.safe_dump(
+            {
+                "class": "REPRODUCTION",
+                "created_by": {"type": "agent", "id": "agent:legacy"},
+                "details": {
+                    "independent": True,
+                    "relationship_to_originator": "unknown",
+                    "inputs_received": ["statement"],
+                    "saw_original_work": False,
+                    "implementation_boundary": "unknown",
+                    "dependency_boundary": "unknown",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    legacy_manifest = tmp_path / "audit/evidence-manifest.md"
+    legacy_manifest.write_text("# Historical manifest\n", encoding="utf-8")
+    before = {
+        str(path.relative_to(tmp_path)): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
     first = adoption_gap_report(tmp_path).to_dict()
     second = adoption_gap_report(tmp_path).to_dict()
     assert first == second
     codes = {gap["code"] for gap in first["gaps"]}
     assert {
-        "structure.missing", "claim_id.incompatible", "workflow.unpinned_action",
-        "workflow.unpinned_container", "container.unpinned_image", "identity.creator_missing",
-        "independence.metadata_missing", "adapter.manifest_absent", "migration.record_manual",
+        "structure.missing",
+        "claim_id.incompatible",
+        "workflow.unpinned_action",
+        "workflow.unpinned_container",
+        "container.unpinned_image",
+        "identity.creator_missing",
+        "independence.metadata_missing",
+        "independence.agent_creator",
+        "adapter.manifest_absent",
+        "migration.record_manual",
     }.issubset(codes)
-    by_alias = {gap["details"]["alias"]: gap for gap in first["gaps"] if gap["code"] == "claim_id.incompatible"}
+    by_alias = {
+        gap["details"]["alias"]: gap
+        for gap in first["gaps"]
+        if gap["code"] == "claim_id.incompatible"
+    }
     assert by_alias["K4"]["automatic"] is True
     assert by_alias["K4"]["details"]["suggested_canonical"] == "K004"
     assert by_alias["CJ1"]["automatic"] is False
-    after = {str(path.relative_to(tmp_path)): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    after = {
+        str(path.relative_to(tmp_path)): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
     assert after == before
 
 
-def test_adoption_gap_cli_json_reports_gaps_without_writing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_adoption_gap_cli_json_reports_gaps_without_writing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     code = main(["adoption", "gaps", "--root", str(tmp_path), "--json"])
     assert code == 1
     payload = json.loads(capsys.readouterr().out)

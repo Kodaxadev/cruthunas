@@ -60,6 +60,8 @@ def _gate_five_role_errors(records: tuple[Mapping[str, Any], ...]) -> list[str]:
     classes = evidence_classes(records)
     if "GATE_DISPOSITION" in classes:
         return []
+    if classes.isdisjoint({"REVIEW_INTERNAL", "REVIEW_EXTERNAL"}):
+        return []
 
     recorded: set[str] = set()
     for record in records:

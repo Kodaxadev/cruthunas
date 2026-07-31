@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,21 @@ def _register(root: Path) -> None:
 
 
 def _add_review(root: Path, timestamp: str) -> str:
+    details_path = root / "audit/fixtures/gate-five-review.json"
+    _write(
+        details_path,
+        json.dumps(
+            {
+                "review_roles": {
+                    "prover": "Reviewed the proof argument for completeness.",
+                    "falsifier": "Searched for counterexamples and failure modes.",
+                    "dependency_auditor": "Checked dependency existence and support.",
+                    "statement_auditor": "Checked the registered statement and quantifiers.",
+                }
+            },
+            sort_keys=True,
+        ),
+    )
     result = apply_plan(
         plan_evidence_add(
             root,
@@ -80,6 +96,7 @@ def _add_review(root: Path, timestamp: str) -> str:
             establishes=["Internal review completed"],
             does_not_establish=["External review"],
             source_revision="a" * 40,
+            details_json="audit/fixtures/gate-five-review.json",
             timestamp=timestamp,
         )
     )

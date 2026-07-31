@@ -46,4 +46,17 @@ migration: <migration document or none>
 **Compatibility impact:** The executable schema and command interface are unchanged. Pre-release prose references to `SOURCE`, `DERIVATION`, `REVIEW`, or `MANUSCRIPT` as evidence identifiers must use the corresponding typed class.  
 **Migration:** None for released projects; no Cruthúnas release or governed-project adoption exists yet.
 
+### 2026-07-31 — Transition-evidence support rules
+
+**Status:** Draft, pre-release  
+**Version decision:** Remain at draft specification v1.0; no released specification exists to version or migrate.
+
+- Added `DERIVATION` for heuristic mathematical reasoning that is neither a complete proof nor merely an internal review.
+- Added `GATE_DISPOSITION` for typed `not_applicable` gate closures permitted by the lifecycle specification.
+- Required the evidence cited by each transition record to support that transition's exact gate or status change; unrelated evidence linked elsewhere on the claim is insufficient.
+- Added deterministic requester/originator versus sole-human-approver checks for transitions and claim registration.
+
+**Compatibility impact:** Draft evidence records may use the two new typed classes. Existing draft transitions that cite evidence unrelated to their own promoted axis will fail validation until corrected.  
+**Migration:** None for released projects; no Cruthúnas release or governed-project adoption exists yet.
+
 No released-specification amendments exist yet. These entries record pre-v1.0.0 design evolution and make no backward-compatibility claim.

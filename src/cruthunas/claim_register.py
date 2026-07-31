@@ -3,25 +3,32 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .models import read_yaml
-from .transaction_evidence import _build_evidence, _next_evidence_id, _unique_record_path
+from .transaction_evidence import (
+    _build_evidence,
+    _next_evidence_id,
+    _unique_record_snapshot,
+)
 from .transaction_plan import _plan
 from .transaction_types import (
     CLAIM_ID,
     CLAIM_KINDS,
+    FileSnapshot,
     TransactionError,
     TransactionPlan,
     _actor,
+    _capture_file,
     _claim_map,
     _filename_timestamp,
     _ledger_bytes,
-    _load_ledger,
+    _load_ledger_snapshot,
     _relative_text,
     _source_revision,
     _timestamp,
     _validate_instance,
     _yaml_bytes,
+    _yaml_from_snapshot,
 )
+
 
 def plan_claim_proposal(
     root: Path,
@@ -43,7 +50,7 @@ def plan_claim_proposal(
         raise TransactionError("Claim ID must match ^[A-Z][0-9]{3,}$", exit_code=2)
     if kind not in CLAIM_KINDS:
         raise TransactionError(f"Unknown claim kind: {kind}", exit_code=2)
-    ledger = _load_ledger(root)
+    ledger, ledger_snapshot = _load_ledger_snapshot(root)
     claims = _claim_map(ledger)
     if claim_id in claims:
         raise TransactionError(f"Claim {claim_id} is already registered")
@@ -52,10 +59,10 @@ def plan_claim_proposal(
         if dependency not in claims:
             raise TransactionError(f"Proposal dependency is not registered: {dependency}")
     source_relative = _relative_text(root, source_document)
-    if not (root / source_relative).is_file():
-        raise TransactionError(f"Claim source document does not exist: {source_relative}")
+    source_snapshot = _capture_file(root, source_relative, required=True)
     relative = f"audit/proposals/{claim_id}.yaml"
-    if (root / relative).exists():
+    proposal_target = _capture_file(root, relative)
+    if proposal_target.content is not None:
         raise TransactionError(f"Proposal already exists: {relative}")
     proposed_at = _timestamp(timestamp)
     proposal: dict[str, Any] = {
@@ -84,7 +91,8 @@ def plan_claim_proposal(
         "claim.propose",
         [(relative, _yaml_bytes(proposal))],
         {"claim_id": claim_id, "proposal": relative},
-        reads=[source_relative],
+        read_snapshots=[ledger_snapshot, source_snapshot],
+        write_snapshots={relative: proposal_target},
     )
 
 
@@ -103,30 +111,32 @@ def plan_claim_registration(
     does_not_establish: list[str] | None = None,
 ) -> TransactionPlan:
     proposal_relative = _relative_text(root, proposal_path)
+    proposal_snapshot = _capture_file(root, proposal_relative, required=True)
     proposal_file = root / proposal_relative
-    if not proposal_file.is_file():
-        raise TransactionError(f"Proposal does not exist: {proposal_relative}")
     if proposal_file.parent.resolve() != (root / "audit/proposals").resolve():
         raise TransactionError("Registered proposals must come from audit/proposals/", exit_code=2)
-    proposal = read_yaml(proposal_file)
+    proposal = _yaml_from_snapshot(proposal_snapshot)
     _validate_instance(proposal, root / "schemas/claim-proposal-v1.json", "claim proposal")
     assert isinstance(proposal, dict)
     claim_id = proposal["id"]
-    ledger = _load_ledger(root)
+    ledger, ledger_snapshot = _load_ledger_snapshot(root)
     claims = _claim_map(ledger)
     if claim_id in claims:
         raise TransactionError(f"Claim {claim_id} is already registered")
     for dependency in proposal.get("dependencies", []):
         if dependency not in claims:
             raise TransactionError(f"Proposal dependency is not registered: {dependency}")
+    source_snapshot = _capture_file(root, proposal["source_document"], required=True)
     effective_requester = requested_by or created_by_id
     if approved_by_type == "human" and approved_by_id == effective_requester:
-        raise TransactionError("A human requester cannot be the sole human approver of claim registration")
+        raise TransactionError(
+            "A human requester cannot be the sole human approver of claim registration"
+        )
     created_at = _timestamp(timestamp)
     revision = _source_revision(root, source_revision)
     expected_git_head = revision if source_revision is None else None
     evidence_id = _next_evidence_id(root, claim_id)
-    evidence = _build_evidence(
+    evidence, evidence_inputs = _build_evidence(
         root,
         claim_id=claim_id,
         evidence_id=evidence_id,
@@ -134,7 +144,9 @@ def plan_claim_registration(
         created_at=created_at,
         created_by_type=created_by_type,
         created_by_id=created_by_id,
-        establishes=establishes or [f"Registers the exact statement of claim {claim_id} at Gate 4."],
+        establishes=establishes or [
+            f"Registers the exact statement of claim {claim_id} at Gate 4."
+        ],
         does_not_establish=does_not_establish or [
             "Claim registration does not establish mathematical correctness, proof, novelty, or external review."
         ],
@@ -186,15 +198,24 @@ def plan_claim_registration(
         "created_at": created_at,
     }
     evidence_path = f"audit/evidence/{claim_id}/{evidence_id}.yaml"
-    transition_path = _unique_record_path(
+    evidence_target = _capture_file(root, evidence_path)
+    if evidence_target.content is not None:
+        raise TransactionError(f"Evidence ID already exists: {evidence_id}")
+    transition_target = _unique_record_snapshot(
         root,
         f"audit/transitions/{claim_id}/{_filename_timestamp(created_at)}-gate-3-to-4.yaml",
     )
+    transition_path = transition_target.path
+    write_snapshots: dict[str, FileSnapshot] = {
+        "claims/claims.yaml": ledger_snapshot,
+        evidence_path: evidence_target,
+        transition_path: transition_target,
+    }
     return _plan(
         root,
         "claim.register",
         [
-            ("claims/claims.yaml", _ledger_bytes(root, ledger)),
+            ("claims/claims.yaml", _ledger_bytes(root, ledger, ledger_snapshot)),
             (evidence_path, _yaml_bytes(evidence)),
             (transition_path, _yaml_bytes(transition)),
         ],
@@ -204,6 +225,11 @@ def plan_claim_registration(
             "evidence_ids": [evidence_id],
             "transition_paths": [transition_path],
         },
-        reads=[proposal_relative],
+        read_snapshots=[
+            proposal_snapshot,
+            source_snapshot,
+            *evidence_inputs,
+        ],
+        write_snapshots=write_snapshots,
         expected_git_head=expected_git_head,
     )

@@ -1,32 +1,42 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from .models import read_yaml, yaml_files
+from .models import yaml_files
 from .transaction_types import (
-    ACTOR_TYPES,
     EVIDENCE_CLASSES,
     EVIDENCE_ID,
+    FileSnapshot,
     TransactionError,
     _actor,
+    _capture_file,
     _relative_text,
-    _resolve_relative,
     _validate_instance,
+    _yaml_from_snapshot,
 )
 
-def _evidence_records(root: Path) -> dict[str, dict[str, Any]]:
+
+def _evidence_records_with_snapshots(
+    root: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, FileSnapshot]]:
     records: dict[str, dict[str, Any]] = {}
+    snapshots: dict[str, FileSnapshot] = {}
     for path in yaml_files(root, "audit/evidence"):
         try:
-            record = read_yaml(path)
-        except Exception:
+            snapshot = _capture_file(root, path, required=True)
+            record = _yaml_from_snapshot(snapshot)
+        except TransactionError:
             continue
         if isinstance(record, dict) and isinstance(record.get("id"), str):
             records[record["id"]] = record
-    return records
+            snapshots[record["id"]] = snapshot
+    return records, snapshots
+
+
+def _evidence_records(root: Path) -> dict[str, dict[str, Any]]:
+    return _evidence_records_with_snapshots(root)[0]
 
 
 def _next_evidence_id(root: Path, claim_id: str) -> str:
@@ -43,38 +53,52 @@ def _next_evidence_id(root: Path, claim_id: str) -> str:
     return f"E-{claim_id}-{maximum + 1:04d}"
 
 
-def _unique_record_path(root: Path, relative: str) -> str:
+def _unique_record_snapshot(root: Path, relative: str) -> FileSnapshot:
     candidate = relative
     counter = 2
     path = Path(relative)
-    while (root / candidate).exists():
+    while True:
+        snapshot = _capture_file(root, candidate)
+        if snapshot.content is None:
+            return snapshot
         candidate = str(path.with_name(f"{path.stem}-{counter}{path.suffix}")).replace("\\", "/")
         counter += 1
-    return candidate
 
 
-def _artifact_records(root: Path, artifacts: Iterable[str]) -> list[dict[str, str]]:
+def _unique_record_path(root: Path, relative: str) -> str:
+    return _unique_record_snapshot(root, relative).path
+
+
+def _artifact_records(
+    root: Path,
+    artifacts: Iterable[str],
+) -> tuple[list[dict[str, str]], list[FileSnapshot]]:
     records: list[dict[str, str]] = []
+    snapshots: list[FileSnapshot] = []
     for value in artifacts:
         relative = _relative_text(root, value)
-        path = root / relative
-        if not path.is_file():
-            raise TransactionError(f"Evidence artifact does not exist: {relative}")
-        records.append({"path": relative, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
-    return records
+        snapshot = _capture_file(root, relative, required=True)
+        assert snapshot.sha256 is not None
+        records.append({"path": relative, "sha256": snapshot.sha256})
+        snapshots.append(snapshot)
+    return records, snapshots
 
 
-def _environment(root: Path, environment_json: str | None) -> dict[str, Any] | None:
+def _environment(
+    root: Path,
+    environment_json: str | None,
+) -> tuple[dict[str, Any] | None, list[FileSnapshot]]:
     if environment_json is None:
-        return None
-    path = _resolve_relative(root, environment_json)
+        return None, []
+    snapshot = _capture_file(root, environment_json, required=True)
+    assert snapshot.content is not None
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        value = json.loads(snapshot.content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise TransactionError(f"Could not read environment JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise TransactionError("Environment JSON must contain an object")
-    return value
+    return value, [snapshot]
 
 
 def _build_evidence(
@@ -95,13 +119,21 @@ def _build_evidence(
     notes: str | None,
     reviewer_type: str | None,
     reviewer_id: str | None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], tuple[FileSnapshot, ...]]:
     if evidence_class not in EVIDENCE_CLASSES:
         raise TransactionError(f"Unknown evidence class: {evidence_class}", exit_code=2)
     if not establishes or not all(item.strip() for item in establishes):
-        raise TransactionError("Evidence requires at least one non-empty establishes statement", exit_code=2)
+        raise TransactionError(
+            "Evidence requires at least one non-empty establishes statement",
+            exit_code=2,
+        )
     if not does_not_establish or not all(item.strip() for item in does_not_establish):
-        raise TransactionError("Evidence requires at least one non-empty does-not-establish statement", exit_code=2)
+        raise TransactionError(
+            "Evidence requires at least one non-empty does-not-establish statement",
+            exit_code=2,
+        )
+    artifact_records, artifact_snapshots = _artifact_records(root, artifacts)
+    environment, environment_snapshots = _environment(root, environment_json)
     record: dict[str, Any] = {
         "schema_version": 1,
         "id": evidence_id,
@@ -111,9 +143,9 @@ def _build_evidence(
         "created_by": _actor(created_by_type, created_by_id),
         "establishes": [item.strip() for item in establishes],
         "does_not_establish": [item.strip() for item in does_not_establish],
-        "artifacts": _artifact_records(root, artifacts),
+        "artifacts": artifact_records,
         "commands": [item.strip() for item in commands],
-        "environment": _environment(root, environment_json),
+        "environment": environment,
         "source_revision": source_revision,
         "notes": notes,
     }
@@ -129,7 +161,7 @@ def _build_evidence(
             raise TransactionError("Reviewer type and ID must be supplied together", exit_code=2)
         record["reviewer"] = _actor(reviewer_type, reviewer_id)
     _validate_instance(record, root / "schemas/evidence-v1.json", "evidence record")
-    return record
+    return record, tuple([*artifact_snapshots, *environment_snapshots])
 
 
 def _link_evidence(claim: dict[str, Any], evidence: dict[str, Any]) -> None:
@@ -149,5 +181,9 @@ def _link_evidence(claim: dict[str, Any], evidence: dict[str, Any]) -> None:
             "record": evidence_id,
             "venue": reviewer.get("id") if reviewer.get("type") == "venue" else None,
         }
-        if not any(item.get("record") == evidence_id for item in reviews if isinstance(item, dict)):
+        if not any(
+            item.get("record") == evidence_id
+            for item in reviews
+            if isinstance(item, dict)
+        ):
             reviews.append(record)

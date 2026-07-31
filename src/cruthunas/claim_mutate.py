@@ -4,13 +4,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .models import read_yaml, yaml_files
 from .transaction_evidence import (
     _build_evidence,
-    _evidence_records,
+    _evidence_records_with_snapshots,
     _link_evidence,
     _next_evidence_id,
-    _unique_record_path,
+    _unique_record_snapshot,
 )
 from .transaction_plan import _plan
 from .transaction_types import (
@@ -18,31 +17,21 @@ from .transaction_types import (
     EVIDENCE_ID,
     PUBLICATION_STATUSES,
     VERIFICATION_STATUSES,
+    FileSnapshot,
     TransactionError,
     TransactionPlan,
     _actor,
+    _capture_file,
     _claim_map,
     _filename_timestamp,
-    _latest_transition_timestamp,
     _ledger_bytes,
-    _load_ledger,
+    _load_ledger_snapshot,
     _parsed_timestamp,
     _source_revision,
     _timestamp,
+    _transition_history,
     _yaml_bytes,
 )
-
-def _evidence_input_paths(root: Path, evidence_ids: list[str]) -> list[str]:
-    wanted = set(evidence_ids)
-    paths: dict[str, str] = {}
-    for path in yaml_files(root, "audit/evidence"):
-        try:
-            record = read_yaml(path)
-        except Exception:
-            continue
-        if isinstance(record, dict) and record.get("id") in wanted:
-            paths[record["id"]] = str(path.relative_to(root)).replace("\\", "/")
-    return [paths[evidence_id] for evidence_id in evidence_ids if evidence_id in paths]
 
 
 def plan_evidence_add(
@@ -64,21 +53,26 @@ def plan_evidence_add(
     reviewer_id: str | None = None,
     timestamp: str | None = None,
 ) -> TransactionPlan:
-    ledger = _load_ledger(root)
+    ledger, ledger_snapshot = _load_ledger_snapshot(root)
     claims = _claim_map(ledger)
     if claim_id not in claims:
         raise TransactionError(f"Unknown claim: {claim_id}")
-    records = _evidence_records(root)
+    records, _record_snapshots = _evidence_records_with_snapshots(root)
     selected_id = evidence_id or _next_evidence_id(root, claim_id)
     match = EVIDENCE_ID.fullmatch(selected_id)
     if not match or match.group(1) != claim_id:
-        raise TransactionError(f"Evidence ID must belong to {claim_id}: {selected_id}", exit_code=2)
-    if selected_id in records or (root / f"audit/evidence/{claim_id}/{selected_id}.yaml").exists():
+        raise TransactionError(
+            f"Evidence ID must belong to {claim_id}: {selected_id}",
+            exit_code=2,
+        )
+    path = f"audit/evidence/{claim_id}/{selected_id}.yaml"
+    evidence_target = _capture_file(root, path)
+    if selected_id in records or evidence_target.content is not None:
         raise TransactionError(f"Evidence ID already exists: {selected_id}")
     created_at = _timestamp(timestamp)
     revision = _source_revision(root, source_revision)
     expected_git_head = revision if source_revision is None else None
-    evidence = _build_evidence(
+    evidence, evidence_inputs = _build_evidence(
         root,
         claim_id=claim_id,
         evidence_id=selected_id,
@@ -99,16 +93,19 @@ def plan_evidence_add(
     claim = claims[claim_id]
     _link_evidence(claim, evidence)
     claim["updated_at"] = created_at
-    path = f"audit/evidence/{claim_id}/{selected_id}.yaml"
     return _plan(
         root,
         "evidence.add",
         [
-            ("claims/claims.yaml", _ledger_bytes(root, ledger)),
+            ("claims/claims.yaml", _ledger_bytes(root, ledger, ledger_snapshot)),
             (path, _yaml_bytes(evidence)),
         ],
         {"claim_id": claim_id, "evidence_ids": [selected_id], "evidence_paths": [path]},
-        reads=[*(artifacts or []), *([environment_json] if environment_json else [])],
+        read_snapshots=list(evidence_inputs),
+        write_snapshots={
+            "claims/claims.yaml": ledger_snapshot,
+            path: evidence_target,
+        },
         expected_git_head=expected_git_head,
     )
 
@@ -158,24 +155,33 @@ def plan_claim_transition(
     reviewer_id: str | None = None,
     timestamp: str | None = None,
 ) -> TransactionPlan:
-    ledger = _load_ledger(root)
+    ledger, ledger_snapshot = _load_ledger_snapshot(root)
     claims = _claim_map(ledger)
     if claim_id not in claims:
         raise TransactionError(f"Unknown claim: {claim_id}")
     if approved_by_type == "human" and approved_by_id == requested_by:
-        raise TransactionError("A human requester cannot be the sole human approver of the same transition")
+        raise TransactionError(
+            "A human requester cannot be the sole human approver of the same transition"
+        )
     claim = claims[claim_id]
     created_at = _timestamp(timestamp)
-    evidence_records = _evidence_records(root)
+    evidence_records, evidence_snapshots = _evidence_records_with_snapshots(root)
     selected_evidence = list(dict.fromkeys(evidence_ids or []))
+    selected_evidence_snapshots: list[FileSnapshot] = []
     for evidence_id in selected_evidence:
         record = evidence_records.get(evidence_id)
         if record is None:
             raise TransactionError(f"Transition evidence does not exist: {evidence_id}")
         if record.get("claim_id") != claim_id:
-            raise TransactionError(f"Transition evidence belongs to another claim: {evidence_id}")
+            raise TransactionError(
+                f"Transition evidence belongs to another claim: {evidence_id}"
+            )
+        selected_evidence_snapshots.append(evidence_snapshots[evidence_id])
+
     new_evidence: dict[str, Any] | None = None
     new_evidence_path: str | None = None
+    new_evidence_target: FileSnapshot | None = None
+    new_evidence_inputs: tuple[FileSnapshot, ...] = ()
     expected_git_head: str | None = None
     if new_evidence_class is not None:
         if created_by_type is None or created_by_id is None:
@@ -189,7 +195,7 @@ def plan_claim_transition(
             new_id = f"E-{claim_id}-{number:04d}"
         revision = _source_revision(root, source_revision)
         expected_git_head = revision if source_revision is None else None
-        new_evidence = _build_evidence(
+        new_evidence, new_evidence_inputs = _build_evidence(
             root,
             claim_id=claim_id,
             evidence_id=new_id,
@@ -209,17 +215,27 @@ def plan_claim_transition(
         )
         selected_evidence.append(new_id)
         new_evidence_path = f"audit/evidence/{claim_id}/{new_id}.yaml"
+        new_evidence_target = _capture_file(root, new_evidence_path)
+        if new_evidence_target.content is not None:
+            raise TransactionError(f"Evidence ID already exists: {new_id}")
         _link_evidence(claim, new_evidence)
     if not selected_evidence:
         raise TransactionError("A transition requires at least one evidence record", exit_code=2)
     for evidence_id in selected_evidence:
-        record = new_evidence if new_evidence and new_evidence["id"] == evidence_id else evidence_records[evidence_id]
+        record = (
+            new_evidence
+            if new_evidence and new_evidence["id"] == evidence_id
+            else evidence_records[evidence_id]
+        )
         _link_evidence(claim, record)
 
     changes: list[tuple[str, Any, Any]] = []
     if gate is not None:
         if gate < 4 or gate > 10:
-            raise TransactionError("Registered claim gate must remain between 4 and 10", exit_code=2)
+            raise TransactionError(
+                "Registered claim gate must remain between 4 and 10",
+                exit_code=2,
+            )
         before = claim["gate"]
         if gate > before + 1:
             raise TransactionError(f"Gate promotion cannot skip from {before} to {gate}")
@@ -235,7 +251,10 @@ def plan_claim_transition(
             claim["epistemic_status"] = epistemic
     if publication is not None:
         if publication not in PUBLICATION_STATUSES:
-            raise TransactionError(f"Unknown publication status: {publication}", exit_code=2)
+            raise TransactionError(
+                f"Unknown publication status: {publication}",
+                exit_code=2,
+            )
         before = claim["publication_status"]
         if publication != before:
             changes.append(("publication", before, publication))
@@ -250,8 +269,11 @@ def plan_claim_transition(
             claim["verification_statuses"] = after
     if not changes:
         raise TransactionError("Transition does not change any claim axis", exit_code=2)
+
+    transition_history_snapshots: list[FileSnapshot] = []
     for axis, _before, _after in changes:
-        latest = _latest_transition_timestamp(root, claim_id, axis)
+        latest, history_snapshots = _transition_history(root, claim_id, axis)
+        transition_history_snapshots.extend(history_snapshots)
         if latest is not None and _parsed_timestamp(created_at) <= _parsed_timestamp(latest):
             raise TransactionError(
                 f"Transition timestamp for {claim_id}/{axis} must be later than {latest}",
@@ -260,9 +282,19 @@ def plan_claim_transition(
     claim["updated_at"] = created_at
     approver = _actor(approved_by_type, approved_by_id, approver=True)
     transition_paths: list[str] = []
-    writes: list[tuple[str, bytes]] = [("claims/claims.yaml", _ledger_bytes(root, ledger))]
-    if new_evidence is not None and new_evidence_path is not None:
+    writes: list[tuple[str, bytes]] = [
+        ("claims/claims.yaml", _ledger_bytes(root, ledger, ledger_snapshot))
+    ]
+    write_snapshots: dict[str, FileSnapshot] = {
+        "claims/claims.yaml": ledger_snapshot,
+    }
+    if (
+        new_evidence is not None
+        and new_evidence_path is not None
+        and new_evidence_target is not None
+    ):
         writes.append((new_evidence_path, _yaml_bytes(new_evidence)))
+        write_snapshots[new_evidence_path] = new_evidence_target
     stamp = _filename_timestamp(created_at)
     for axis, before, after in changes:
         transition = {
@@ -279,12 +311,13 @@ def plan_claim_transition(
         }
         suffix = f"{axis}-{str(before).lower()}-to-{str(after).lower()}"
         suffix = re.sub(r"[^a-z0-9-]+", "-", suffix).strip("-")
-        path = _unique_record_path(
+        target = _unique_record_snapshot(
             root,
             f"audit/transitions/{claim_id}/{stamp}-{suffix}.yaml",
         )
-        transition_paths.append(path)
-        writes.append((path, _yaml_bytes(transition)))
+        transition_paths.append(target.path)
+        writes.append((target.path, _yaml_bytes(transition)))
+        write_snapshots[target.path] = target
     return _plan(
         root,
         "claim.transition",
@@ -298,10 +331,11 @@ def plan_claim_transition(
                 for axis, before, after in changes
             ],
         },
-        reads=[
-            *_evidence_input_paths(root, selected_evidence),
-            *(artifacts or []),
-            *([environment_json] if environment_json else []),
+        read_snapshots=[
+            *selected_evidence_snapshots,
+            *new_evidence_inputs,
+            *transition_history_snapshots,
         ],
+        write_snapshots=write_snapshots,
         expected_git_head=expected_git_head,
     )

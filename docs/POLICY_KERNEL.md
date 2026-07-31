@@ -26,20 +26,21 @@ cruthunas claim transition <ID> ...
 The command layer enforces these transaction boundaries:
 
 - proposals are schema-validated and remain outside the claim ledger;
-- registration creates the claim, `CLAIM_REGISTRATION` evidence, and the mandatory Gate 3 → 4 transition together;
+- registration creates the claim, `CLAIM_REGISTRATION` evidence, and the mandatory Gate 3 → Gate 4 transition together;
 - evidence creation writes the typed evidence record and links it from the claim in the same transaction;
 - a transition may change one or more claim axes, creates one typed transition record per axis, and may create a new evidence record in the same transaction;
 - the complete prospective repository is copied to an isolated validation tree and must pass the full policy graph before any canonical file is replaced;
 - every changed target is checked for concurrent modification before commit;
-- every proposal, evidence record, artifact, and environment file consumed by a plan is content-fingerprinted and rechecked before commit;
-- an automatically detected `source_revision` requires a clean Git working tree, pins the current `HEAD`, and rechecks that `HEAD` before commit;
+- every proposal, ledger, evidence record, source document, artifact, environment file, and transition-history record is captured once; generated output is constructed from those exact bytes and their fingerprints are rechecked before commit;
+- every destination is also captured before preview so a concurrent creation or modification cannot be overwritten;
+- an automatically detected `source_revision` requires a clean Git working tree, pins the current `HEAD`, and rechecks both `HEAD` and working-tree cleanliness before commit;
 - an explicit `--source-revision` is treated as a caller attestation for external or non-Git source state;
 - in-process write or post-write validation failures restore the original files, and incomplete rollback is reported as an internal failure rather than hidden;
 - mutating commands preview by default and require confirmation unless `--yes` is explicitly supplied;
 - `--dry-run` validates and previews without writing;
 - machine-readable output is available with `--json` in `--dry-run` or `--yes` mode.
 
-The filesystem transaction is validated-before-write and rollback-protected within the running process. Read-input fingerprints close the preview-to-apply race for files that determine generated records. The implementation does not claim crash consistency across operating-system failure or sudden power loss.
+The filesystem transaction is validated-before-write and rollback-protected within the running process. Plan-time snapshots ensure that generated records, previews, and apply-time preconditions refer to the same input bytes rather than to later rereads. The implementation does not claim crash consistency across operating-system failure or sudden power loss.
 
 ## Skill scope
 
@@ -54,7 +55,7 @@ The specialized skills described in the architecture remain a planned decomposit
 - Claim IDs are unique, dependencies exist, and the dependency graph is acyclic.
 - Registered claims are at Gate 4 or later and point to existing source documents.
 - Evidence and transition records validate against typed schemas.
-- Evidence belongs to the claim directory and all referenced artifacts exist.
+- Evidence belongs to the claim directory; every referenced local artifact exists and matches its recorded SHA-256 digest.
 - Claim epistemic and verification states have matching evidence classes.
 - Every claim has a Gate 3 → Gate 4 transition backed by `CLAIM_REGISTRATION` evidence.
 - Transition chains are contiguous and end at the ledger's current state.

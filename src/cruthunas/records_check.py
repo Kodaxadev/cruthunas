@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
 from .models import Finding, load_and_validate, path_exists, yaml_files
 from .transition_check import check_transition_semantics
-
 
 EVIDENCE_FOR = {
     "INTERNAL_AUDIT": {"REVIEW_INTERNAL"},
@@ -13,6 +13,17 @@ EVIDENCE_FOR = {
     "FORMALIZED": {"FORMALIZATION"},
     "EXTERNAL_REVIEW": {"REVIEW_EXTERNAL"},
 }
+
+
+def _local_artifact(root: Path, value: str) -> Path | None:
+    if value.startswith(("https://", "http://", "doi:")):
+        return None
+    candidate = (root / value).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 def _evidence(
@@ -33,12 +44,13 @@ def _evidence(
         if not isinstance(record, dict) or not isinstance(record.get("id"), str):
             continue
         evidence_id = record["id"]
+        relative = str(path.relative_to(root))
         if evidence_id in records:
             findings.append(
                 Finding(
                     "evidence.duplicate_id",
                     f"Duplicate evidence ID {evidence_id}",
-                    str(path.relative_to(root)),
+                    relative,
                 )
             )
         records[evidence_id] = record
@@ -48,7 +60,7 @@ def _evidence(
                 Finding(
                     "evidence.unknown_claim",
                     f"Evidence {evidence_id} refers to unknown claim {claim_id}",
-                    str(path.relative_to(root)),
+                    relative,
                 )
             )
         if path.parent.resolve() != (root / "audit/evidence" / str(claim_id)).resolve():
@@ -56,17 +68,42 @@ def _evidence(
                 Finding(
                     "evidence.path_mismatch",
                     f"Evidence for {claim_id} must live under audit/evidence/{claim_id}/",
-                    str(path.relative_to(root)),
+                    relative,
                 )
             )
         for artifact in record.get("artifacts", []):
             artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
-            if isinstance(artifact_path, str) and not path_exists(root, artifact_path):
+            if not isinstance(artifact_path, str):
+                continue
+            if not path_exists(root, artifact_path):
                 findings.append(
                     Finding(
                         "evidence.missing_artifact",
                         f"Evidence {evidence_id} artifact does not exist: {artifact_path}",
-                        str(path.relative_to(root)),
+                        relative,
+                    )
+                )
+                continue
+            local = _local_artifact(root, artifact_path)
+            if local is None:
+                continue
+            if not local.is_file():
+                findings.append(
+                    Finding(
+                        "evidence.missing_artifact",
+                        f"Evidence {evidence_id} artifact is not a file: {artifact_path}",
+                        relative,
+                    )
+                )
+                continue
+            expected = artifact.get("sha256") if isinstance(artifact, dict) else None
+            actual = hashlib.sha256(local.read_bytes()).hexdigest()
+            if isinstance(expected, str) and actual != expected:
+                findings.append(
+                    Finding(
+                        "evidence.artifact_hash_mismatch",
+                        f"Evidence {evidence_id} artifact hash does not match: {artifact_path}",
+                        relative,
                     )
                 )
         if record.get("class") == "REVIEW_EXTERNAL":
@@ -79,7 +116,7 @@ def _evidence(
                     Finding(
                         "review.external_identity_required",
                         f"External-review evidence {evidence_id} requires a human or venue reviewer",
-                        str(path.relative_to(root)),
+                        relative,
                     )
                 )
     return records, findings
@@ -104,12 +141,13 @@ def _transitions(
         if not isinstance(record, dict):
             continue
         records.append(record)
+        relative = str(path.relative_to(root))
         if record.get("claim_id") not in claims:
             findings.append(
                 Finding(
                     "transition.unknown_claim",
                     f"Transition refers to unknown claim {record.get('claim_id')}",
-                    str(path.relative_to(root)),
+                    relative,
                 )
             )
         for evidence_id in record.get("evidence", []):
@@ -118,7 +156,7 @@ def _transitions(
                     Finding(
                         "transition.missing_evidence",
                         f"Transition references missing evidence {evidence_id}",
-                        str(path.relative_to(root)),
+                        relative,
                     )
                 )
     return records, findings

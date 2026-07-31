@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .models import read_json, read_yaml, yaml_files
+from .models import CruthunasLoader, read_json, yaml_files
 
 CLAIM_ID = re.compile(r"^[A-Z][0-9]{3,}$")
 EVIDENCE_ID = re.compile(r"^E-([A-Z][0-9]{3,})-([0-9]{4,})$")
@@ -75,6 +75,13 @@ class TransactionError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class FileSnapshot:
+    path: str
+    content: bytes | None
+    sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class PlannedRead:
     path: str
     expected_sha256: str
@@ -111,17 +118,46 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _planned_read(root: Path, relative: str) -> PlannedRead:
+def _capture_file(root: Path, value: str | Path, *, required: bool = False) -> FileSnapshot:
+    relative = _relative_text(root, value)
     target = _resolve_relative(root, relative)
-    if not target.is_file():
-        raise TransactionError(f"Transaction input is not a file: {relative}")
-    return PlannedRead(relative, _sha256_bytes(target.read_bytes()))
+    try:
+        with target.open("rb") as handle:
+            content = handle.read()
+    except FileNotFoundError:
+        if required:
+            raise TransactionError(f"Transaction input is not a file: {relative}")
+        return FileSnapshot(relative, None, None)
+    except IsADirectoryError as exc:
+        raise TransactionError(f"Transaction path is not a file: {relative}") from exc
+    return FileSnapshot(relative, content, _sha256_bytes(content))
+
+
+def _snapshot_read(snapshot: FileSnapshot) -> PlannedRead:
+    if snapshot.content is None or snapshot.sha256 is None:
+        raise TransactionError(f"Transaction input is not a file: {snapshot.path}")
+    return PlannedRead(snapshot.path, snapshot.sha256)
+
+
+def _snapshot_write(snapshot: FileSnapshot, content: bytes) -> PlannedWrite:
+    return PlannedWrite(snapshot.path, content, snapshot.sha256)
+
+
+def _planned_read(root: Path, relative: str) -> PlannedRead:
+    return _snapshot_read(_capture_file(root, relative, required=True))
 
 
 def _planned_write(root: Path, relative: str, content: bytes) -> PlannedWrite:
-    target = _resolve_relative(root, relative)
-    expected = _sha256_bytes(target.read_bytes()) if target.is_file() else None
-    return PlannedWrite(relative, content, expected)
+    return _snapshot_write(_capture_file(root, relative), content)
+
+
+def _yaml_from_snapshot(snapshot: FileSnapshot) -> Any:
+    if snapshot.content is None:
+        raise TransactionError(f"Transaction input is not a file: {snapshot.path}")
+    try:
+        return yaml.load(snapshot.content.decode("utf-8"), Loader=CruthunasLoader)
+    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise TransactionError(f"Could not parse {snapshot.path}: {exc}") from exc
 
 
 def _resolve_relative(root: Path, value: str | Path) -> Path:
@@ -169,15 +205,22 @@ def _parsed_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
-def _latest_transition_timestamp(root: Path, claim_id: str, axis: str) -> str | None:
+def _transition_history(
+    root: Path,
+    claim_id: str,
+    axis: str,
+) -> tuple[str | None, tuple[FileSnapshot, ...]]:
     latest: tuple[datetime, str] | None = None
+    snapshots: list[FileSnapshot] = []
     for path in yaml_files(root, f"audit/transitions/{claim_id}"):
         try:
-            record = read_yaml(path)
-        except Exception:
+            snapshot = _capture_file(root, path, required=True)
+            record = _yaml_from_snapshot(snapshot)
+        except TransactionError:
             continue
         if not isinstance(record, dict) or record.get("axis") != axis:
             continue
+        snapshots.append(snapshot)
         value = record.get("created_at")
         if not isinstance(value, str):
             continue
@@ -187,7 +230,11 @@ def _latest_transition_timestamp(root: Path, claim_id: str, axis: str) -> str | 
             continue
         if latest is None or parsed > latest[0]:
             latest = (parsed, value)
-    return latest[1] if latest else None
+    return (latest[1] if latest else None, tuple(snapshots))
+
+
+def _latest_transition_timestamp(root: Path, claim_id: str, axis: str) -> str | None:
+    return _transition_history(root, claim_id, axis)[0]
 
 
 def _run_git(root: Path, *arguments: str) -> str:
@@ -216,6 +263,10 @@ def _git_head(root: Path) -> str:
     return revision
 
 
+def _git_status(root: Path) -> str:
+    return _run_git(root, "status", "--porcelain=v1", "--untracked-files=all")
+
+
 def _source_revision(root: Path, override: str | None) -> str:
     if override is not None:
         if not FULL_SHA.fullmatch(override):
@@ -225,7 +276,7 @@ def _source_revision(root: Path, override: str | None) -> str:
             )
         return override
     revision = _git_head(root)
-    dirty = _run_git(root, "status", "--porcelain=v1", "--untracked-files=all")
+    dirty = _git_status(root)
     if dirty:
         raise TransactionError(
             "Working tree is dirty; commit the source state before recording evidence or pass --source-revision explicitly",
@@ -247,15 +298,16 @@ def _actor(actor_type: str, actor_id: str, *, approver: bool = False) -> dict[st
     return {"type": actor_type, "id": actor_id.strip()}
 
 
-def _load_ledger(root: Path) -> dict[str, Any]:
-    path = root / "claims/claims.yaml"
-    try:
-        ledger = read_yaml(path)
-    except Exception as exc:
-        raise TransactionError(f"Could not read claims ledger: {exc}") from exc
+def _load_ledger_snapshot(root: Path) -> tuple[dict[str, Any], FileSnapshot]:
+    snapshot = _capture_file(root, "claims/claims.yaml", required=True)
+    ledger = _yaml_from_snapshot(snapshot)
     if not isinstance(ledger, dict) or not isinstance(ledger.get("claims"), list):
         raise TransactionError("claims/claims.yaml is not a valid claim ledger")
-    return ledger
+    return ledger, snapshot
+
+
+def _load_ledger(root: Path) -> dict[str, Any]:
+    return _load_ledger_snapshot(root)[0]
 
 
 def _claim_map(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -275,11 +327,19 @@ def _yaml_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def _ledger_bytes(root: Path, ledger: dict[str, Any]) -> bytes:
-    path = root / "claims/claims.yaml"
+def _ledger_bytes(
+    root: Path,
+    ledger: dict[str, Any],
+    snapshot: FileSnapshot | None = None,
+) -> bytes:
     prefix = ""
-    if path.is_file():
-        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    source = snapshot.content if snapshot is not None else _capture_file(
+        root,
+        "claims/claims.yaml",
+        required=True,
+    ).content
+    if source is not None:
+        lines = source.decode("utf-8").splitlines(keepends=True)
         for index, line in enumerate(lines):
             if line.startswith("schema_version:"):
                 prefix = "".join(lines[:index])

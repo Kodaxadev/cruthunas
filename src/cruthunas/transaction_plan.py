@@ -9,13 +9,17 @@ from typing import Any
 
 from .policy import run_checks
 from .transaction_types import (
+    FileSnapshot,
     PlannedRead,
     PlannedWrite,
     TransactionError,
     TransactionPlan,
     _git_head,
+    _git_status,
     _planned_read,
     _planned_write,
+    _snapshot_read,
+    _snapshot_write,
     _relative_text,
     _resolve_relative,
     _sha256_bytes,
@@ -59,8 +63,14 @@ def _plan(
     preview: dict[str, Any],
     *,
     reads: list[str | Path] | None = None,
+    read_snapshots: list[FileSnapshot] | None = None,
+    write_snapshots: dict[str, FileSnapshot] | None = None,
     expected_git_head: str | None = None,
 ) -> TransactionPlan:
+    normalized_write_snapshots = {
+        _relative_text(root, path): snapshot
+        for path, snapshot in (write_snapshots or {}).items()
+    }
     seen_writes: set[str] = set()
     planned_writes: list[PlannedWrite] = []
     for relative, content in writes:
@@ -71,10 +81,30 @@ def _plan(
                 exit_code=5,
             )
         seen_writes.add(normalized)
-        planned_writes.append(_planned_write(root, normalized, content))
+        snapshot = normalized_write_snapshots.get(normalized)
+        if snapshot is not None:
+            if snapshot.path != normalized:
+                raise TransactionError(
+                    f"Write snapshot path mismatch: {snapshot.path} != {normalized}",
+                    exit_code=5,
+                )
+            planned_writes.append(_snapshot_write(snapshot, content))
+        else:
+            planned_writes.append(_planned_write(root, normalized, content))
 
     seen_reads: set[str] = set()
     planned_reads: list[PlannedRead] = []
+    for snapshot in read_snapshots or []:
+        normalized = _relative_text(root, snapshot.path)
+        if normalized in seen_writes or normalized in seen_reads:
+            continue
+        if snapshot.path != normalized:
+            raise TransactionError(
+                f"Read snapshot path mismatch: {snapshot.path} != {normalized}",
+                exit_code=5,
+            )
+        seen_reads.add(normalized)
+        planned_reads.append(_snapshot_read(snapshot))
     for value in reads or []:
         normalized = _relative_text(root, value)
         if normalized in seen_writes or normalized in seen_reads:
@@ -119,6 +149,12 @@ def _check_preconditions(plan: TransactionPlan) -> None:
                     "expected_git_head": plan.expected_git_head,
                     "current_git_head": current_head,
                 },
+            )
+        dirty = _git_status(plan.root)
+        if dirty:
+            raise TransactionError(
+                "Working tree changed after the transaction preview; rebuild the transaction",
+                details={"dirty_paths": dirty.splitlines()},
             )
     for item in plan.reads:
         target = _resolve_relative(plan.root, item.path)

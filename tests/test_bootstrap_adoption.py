@@ -296,7 +296,6 @@ def test_adoption_gap_report_is_deterministic_and_non_mutating(tmp_path: Path) -
         "workflow.unpinned_action",
         "workflow.unpinned_container",
         "container.unpinned_image",
-        "identity.creator_missing",
         "independence.metadata_missing",
         "independence.agent_creator",
         "adapter.manifest_absent",

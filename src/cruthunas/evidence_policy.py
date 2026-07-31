@@ -78,9 +78,8 @@ def evidence_contract_errors(record: Mapping[str, Any], *, originator_ids: Itera
     creator = _actor_identity(record, "created_by")
     originators = {key for value in originator_ids if (key := normalized_identity(value)) is not None}
     if evidence_class in {"REPRODUCTION", "REVIEW_EXTERNAL"}:
-        if creator_type == "agent":
-            authority = "independent reproduction" if evidence_class == "REPRODUCTION" else "external review"
-            errors.append(f"Agent-created {evidence_class} evidence is provenance only and cannot establish {authority}")
+        if evidence_class == "REPRODUCTION" and creator_type == "agent":
+            errors.append("Agent-created REPRODUCTION evidence is provenance only and cannot establish independent reproduction")
         if not isinstance(details, Mapping) or details.get("independent") is not True:
             errors.append(f"{evidence_class} evidence must explicitly record independent=true")
         if isinstance(details, Mapping) and not isinstance(details.get("saw_original_work"), bool):

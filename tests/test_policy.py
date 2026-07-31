@@ -137,9 +137,11 @@ def test_valid_computational_claim(tmp_path: Path) -> None:
     )
     root = _project(tmp_path, [claim])
 
-    artifact_text = '{"ok": true}\n'
+    artifact_bytes = b'{"ok": true}\n'
     artifact_path = "certificates/T001/reproduction.json"
-    _write(root / artifact_path, artifact_text)
+    artifact = root / artifact_path
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(artifact_bytes)
 
     registration = _evidence(registration_id, "CLAIM_REGISTRATION")
     registration["created_at"] = "2026-07-30T19:01:00Z"
@@ -155,7 +157,7 @@ def test_valid_computational_claim(tmp_path: Path) -> None:
             "artifacts": [
                 {
                     "path": artifact_path,
-                    "sha256": hashlib.sha256(artifact_text.encode("utf-8")).hexdigest(),
+                    "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
                 }
             ],
             "commands": ["python independent/reproduce.py"],

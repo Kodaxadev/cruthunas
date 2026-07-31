@@ -165,12 +165,18 @@ def test_duplicate_axis_transition_timestamps_are_rejected(tmp_path: Path) -> No
     root = _project(tmp_path)
     _register(root)
     review_id = _add_review(root, "2026-07-30T19:02:00Z")
-    _promote_ledger(root, "2026-07-30T19:01:00Z")
+    _promote_ledger(root, "2026-07-30T19:03:00Z")
     _write_gate_transition(
         root,
         evidence_id=review_id,
-        created_at="2026-07-30T19:01:00Z",
-        filename="20260730T190100000000Z-gate-4-to-5.yaml",
+        created_at="2026-07-30T19:03:00Z",
+        filename="20260730T190300000000Z-gate-4-to-5-a.yaml",
+    )
+    _write_gate_transition(
+        root,
+        evidence_id=review_id,
+        created_at="2026-07-30T19:03:00Z",
+        filename="20260730T190300000000Z-gate-4-to-5-b.yaml",
     )
 
     result = run_checks(root)

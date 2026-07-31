@@ -59,4 +59,18 @@ migration: <migration document or none>
 **Compatibility impact:** Draft evidence records may use the two new typed classes. Existing draft transitions that cite evidence unrelated to their own promoted axis will fail validation until corrected.  
 **Migration:** None for released projects; no Cruthúnas release or governed-project adoption exists yet.
 
+### 2026-07-31 — Experimental project bootstrap and adoption reporting
+
+**Status:** Draft, pre-release  
+**Version decision:** Remain at draft specification v1.0; no framework release or conformant governed-project adoption exists.
+
+- Added atomic `cruthunas init` for the minimum governed project structure.
+- Separated `experimental` non-conformant commit-pinned use from release-attested `released` adoption.
+- Added optional normalized historical aliases while preserving canonical claim IDs for all machine references.
+- Added deterministic, non-mutating adoption-gap reporting for structure, historical IDs, pinning, identity, independence, adapters, release compatibility, and manual migrations.
+- Clarified proposal originator, record creator, requester, approver, and reviewer roles. Agent-created computation evidence records provenance but cannot establish independent reproduction or external review.
+
+**Compatibility impact:** Existing canonical IDs and transaction commands remain valid. Project manifests created under the draft pre-release schema require an explicit mode when migrated. Historical aliases are optional and cannot replace canonical IDs in dependencies, evidence commands, or transitions.  
+**Migration:** Use `cruthunas adoption gaps` to identify required work. Initialization refuses to overwrite existing governed files and does not migrate records automatically.
+
 No released-specification amendments exist yet. These entries record pre-v1.0.0 design evolution and make no backward-compatibility claim.

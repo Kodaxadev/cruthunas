@@ -27,6 +27,7 @@ Verification marks are cumulative; `UNCHECKED` appears alone. Publication never 
 - [`docs/EXECUTION_ARCHITECTURE.md`](docs/EXECUTION_ARCHITECTURE.md) — portable skills, local hooks, CLI, CI, releases, and adoption.
 - [`docs/POLICY_MATRIX.md`](docs/POLICY_MATRIX.md) — gate-to-evidence and enforcement map.
 - [`docs/POLICY_KERNEL.md`](docs/POLICY_KERNEL.md) — implemented validation and atomic mutation surface.
+- [`docs/ADOPTION.md`](docs/ADOPTION.md) — experimental initialization, release-aware adoption, aliases, gap reporting, and actor-role boundaries.
 - [`AGENTS.md`](AGENTS.md) — short operational map for coding and research agents.
 - [`claims/claims.yaml`](claims/claims.yaml) — canonical machine-readable claim ledger.
 - [`claims/schema.json`](claims/schema.json) — ledger contract.
@@ -41,26 +42,29 @@ Agent skills guide repeatable work. Hooks catch mistakes early. CI independently
 
 The deterministic implementation currently provides:
 
-- claim-ledger, claim-proposal, evidence, transition, adoption-manifest, and exemption schemas;
-- semantic checks for dependencies, evidence-backed statuses, registration history, and transition chains;
-- validated-before-write commands for claim proposal, registration, evidence creation, and status/gate transitions;
+- claim-ledger, claim-proposal, evidence, transition, adoption-manifest, framework-release, and exemption schemas;
+- semantic checks for dependencies, evidence-backed statuses, registration history, transition chains, aliases, and project adoption mode;
+- validated-before-write commands for project initialization, claim proposal, registration, evidence creation, and status/gate transitions;
+- deterministic, non-mutating adoption-gap reporting;
 - workflow action pinning and generated-binary checks;
 - independent-verifier import-boundary checks;
 - generated Claude/Codex skill adapters with drift detection;
-- `cruthunas check`, `cruthunas status`, and adapter commands;
+- `cruthunas check`, `cruthunas status`, project initialization, adoption reporting, and adapter commands;
 - pre-commit, commit-message, pre-push, and Claude Code hooks;
 - a pinned reusable GitHub Actions policy workflow and regression tests.
 
 ## Governed mutation workflow
 
 ```bash
+cruthunas init --help
 cruthunas claim propose --help
 cruthunas claim register --help
 cruthunas evidence add --help
 cruthunas claim transition --help
+cruthunas adoption gaps --help
 ```
 
-Each mutating command validates the complete prospective repository before writing, previews the affected files, and requires confirmation. Use `--dry-run --json` for a machine-readable non-mutating preview. Use `--yes` only when the current task explicitly authorizes the mutation.
+Each mutating command validates the applicable prospective repository state before writing, previews the affected files, and requires confirmation. Use `--dry-run --json` for a machine-readable non-mutating preview. Use `--yes` only when the current task explicitly authorizes the mutation. Adoption-gap reporting is read-only.
 
 ## Development quick start
 
@@ -100,7 +104,7 @@ See [`docs/STRUCTURE.md`](docs/STRUCTURE.md) for the governed-project layout. Th
 
 ## Status
 
-This project remains **CR-0 — Exploration**. The deterministic policy kernel and initial atomic command layer are implemented, but no framework release or end-to-end governed claim has been completed. No project should claim Cruthúnas conformance against an unreleased moving branch.
+This project remains **CR-0 — Exploration**. The deterministic policy kernel, atomic claim command layer, and bounded experimental-project bootstrap are implemented, but no framework release or conformant governed-project adoption has been completed. Experimental projects are explicitly non-conformant, and no project should claim Cruthúnas conformance against an unreleased framework commit.
 
 ## License
 

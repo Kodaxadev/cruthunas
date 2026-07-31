@@ -133,6 +133,7 @@ Every evidence record uses exactly one of these typed classes:
 - `CHARTER` — frozen definitions, scope, assumptions, or research-charter evidence.
 - `BASELINE` — published examples, canonical fixtures, or baseline-reproduction evidence.
 - `CLAIM_REGISTRATION` — evidence that an exact statement, scope, dependencies, and limitations were registered at Gate 4.
+- `DERIVATION` — a rigorous or non-rigorous mathematical derivation, heuristic argument, or structured reasoning record that does not by itself claim a complete proof.
 - `PROOF` — a written mathematical derivation or proof for the exact registered statement.
 - `COMPUTATION` — an executable search, experiment, certificate, or bounded computational result.
 - `REPRODUCTION` — an independent reimplementation and result-comparison record.
@@ -140,6 +141,7 @@ Every evidence record uses exactly one of these typed classes:
 - `REVIEW_INTERNAL` — structured review by the originator, originating team, or an internal AI-assisted process.
 - `REVIEW_EXTERNAL` — structured review by a named independent human or documented venue process.
 - `MANUSCRIPT_AUDIT` — audited manuscript source, theorem mapping, citation review, and build evidence.
+- `GATE_DISPOSITION` — a recorded `not_applicable` disposition, rationale, and approval for a gate that the specification permits to be inapplicable.
 - `RELEASE` — frozen artifacts, hashes, attestations, archival identifiers, and release evidence.
 - `CORRECTION` — a post-release correction, replacement, or withdrawal record.
 - `REFUTATION` — a counterexample, disproof, or other evidence establishing that a registered claim is false.

@@ -50,8 +50,12 @@ def _validate_plan(plan: TransactionPlan) -> None:
         _apply_writes_to(shadow, plan.writes)
         result = run_checks(shadow)
         if not result.ok:
+            message = "Prospective transaction violates Cruthunas policy"
+            if result.findings:
+                first = result.findings[0]
+                message = f"{message}: {first.message} [{first.code}]"
             raise TransactionError(
-                "Prospective transaction violates Cruthunas policy",
+                message,
                 details=result.to_dict(),
             )
 

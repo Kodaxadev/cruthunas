@@ -214,7 +214,7 @@ def check_transition_semantics(
                     findings.append(
                         Finding(
                             "transition.registration_self_approval",
-                            f"Claim originator {approver} cannot be the sole human registration approver",
+                            f"Human claim originator or requester {approver} cannot be the sole human registration approver",
                             relative,
                         )
                     )

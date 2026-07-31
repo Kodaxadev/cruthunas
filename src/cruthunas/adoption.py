@@ -9,6 +9,7 @@ import yaml
 
 from .adapters import check_adapters
 from .claim_ids import CANONICAL_CLAIM_ID, legacy_canonical_id, normalize_alias
+from .evidence_policy import INDEPENDENCE_KEYS
 from .models import read_yaml
 from .project_check import check_project
 from .repository_check import _workflow_findings
@@ -268,25 +269,30 @@ def _identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
             )
         evidence_class = record.get("class")
         details = record.get("details")
-        if evidence_class == "REPRODUCTION":
-            required = {
-                "independent",
-                "relationship_to_originator",
-                "inputs_received",
-                "saw_original_work",
-                "implementation_boundary",
-                "dependency_boundary",
-            }
+        if evidence_class in {"REPRODUCTION", "REVIEW_EXTERNAL"}:
+            required = set(INDEPENDENCE_KEYS)
             if not isinstance(details, dict) or not required.issubset(details):
+                label = "Reproduction" if evidence_class == "REPRODUCTION" else "External review"
                 gaps.append(
                     AdoptionGap(
                         "independence.metadata_missing",
                         "identity_independence",
-                        "Reproduction record lacks structured identity and independence boundaries",
+                        f"{label} record lacks the complete structured identity and independence boundary",
                         relative,
                         False,
+                        {"required_keys": sorted(required)},
                     )
                 )
+        if evidence_class == "REPRODUCTION" and isinstance(creator, dict) and creator.get("type") == "agent":
+            gaps.append(
+                AdoptionGap(
+                    "independence.agent_creator",
+                    "identity_independence",
+                    "Agent-created reproduction evidence records provenance but cannot establish independent reproduction",
+                    relative,
+                    False,
+                )
+            )
         if evidence_class == "REVIEW_EXTERNAL":
             reviewer = record.get("reviewer")
             if not isinstance(reviewer, dict) or reviewer.get("type") not in {"human", "venue"} or not reviewer.get("id"):

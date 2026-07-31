@@ -329,6 +329,26 @@ def test_adoption_gap_cli_json_reports_gaps_without_writing(
     assert list(tmp_path.iterdir()) == []
 
 
+def test_adoption_gap_detects_unstructured_affirmative_independence_in_docs(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/README.md").write_text(
+        "Independent reproduction was performed by external review.\n",
+        encoding="utf-8",
+    )
+    codes = {gap.code for gap in adoption_gap_report(tmp_path).gaps}
+    assert "identity.unstructured_assertion" in codes
+
+
+def test_adoption_gap_ignores_negative_independence_language(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/README.md").write_text(
+        "This does not establish independent reproduction.\n",
+        encoding="utf-8",
+    )
+    codes = {gap.code for gap in adoption_gap_report(tmp_path).gaps}
+    assert "identity.unstructured_assertion" not in codes
+
+
 def test_adoption_report_distinguishes_adapter_drift(tmp_path: Path) -> None:
     from cruthunas.adapters import sync_adapters
 

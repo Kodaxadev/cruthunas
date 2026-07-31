@@ -316,13 +316,6 @@ def _identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
             if content is None:
                 continue
             matched: set[str] = set()
-            path_is_evidence_context = (
-                relative.casefold().startswith(("audit/", "independent/"))
-                or any(
-                    token in relative.casefold()
-                    for token in ("review", "reproduc", "evidence")
-                )
-            )
             for line in content.splitlines():
                 lowered = line.casefold()
                 if any(
@@ -342,7 +335,7 @@ def _identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
                 ):
                     continue
                 line_matches = {phrase for phrase in phrases if phrase in lowered}
-                if line_matches and (path_is_evidence_context or LEGACY_TOKEN.search(line)):
+                if line_matches:
                     matched.update(line_matches)
             if matched:
                 gaps.append(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,31 @@ def test_live_process_lock_is_not_removed(tmp_path: Path) -> None:
         assert lock.exists()
     finally:
         lock.unlink(missing_ok=True)
+
+
+def test_fresh_malformed_lock_is_treated_as_active(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    lock = transaction_plan._lock_path(root)
+    lock.write_text("", encoding="utf-8")
+    try:
+        with pytest.raises(TransactionError, match="transaction is active"):
+            apply_plan(_proposal_plan(root))
+        assert lock.exists()
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def test_old_malformed_lock_is_recovered(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    lock = transaction_plan._lock_path(root)
+    lock.write_text("{", encoding="utf-8")
+    old = time.time() - transaction_plan._MALFORMED_LOCK_GRACE_SECONDS - 1.0
+    os.utime(lock, (old, old))
+
+    apply_plan(_proposal_plan(root))
+
+    assert (root / "audit/proposals/T001.yaml").is_file()
+    assert not lock.exists()
 
 
 def test_target_is_rechecked_after_backup_before_replace(

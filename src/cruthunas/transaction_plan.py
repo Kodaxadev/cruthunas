@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,8 @@ from .transaction_types import (
     _snapshot_read,
     _snapshot_write,
 )
+
+_MALFORMED_LOCK_GRACE_SECONDS = 5.0
 
 
 def _ignore_shadow(_directory: str, names: list[str]) -> set[str]:
@@ -171,16 +174,31 @@ def _read_lock(lock_path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _lock_age_seconds(lock_path: Path) -> float:
+    return max(0.0, time.time() - lock_path.stat().st_mtime)
+
+
 def _remove_stale_lock(lock_path: Path, root: Path) -> bool:
     record = _read_lock(lock_path)
     if record is not None:
         pid = record.get("pid")
-        recorded_root = record.get("root")
-        if (
-            isinstance(pid, int)
-            and recorded_root == str(root.resolve())
-            and _process_exists(pid)
-        ):
+        if isinstance(pid, int) and _process_exists(pid):
+            return False
+        if not isinstance(pid, int):
+            try:
+                if _lock_age_seconds(lock_path) < _MALFORMED_LOCK_GRACE_SECONDS:
+                    return False
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+    else:
+        try:
+            if _lock_age_seconds(lock_path) < _MALFORMED_LOCK_GRACE_SECONDS:
+                return False
+        except FileNotFoundError:
+            return True
+        except OSError:
             return False
     try:
         lock_path.unlink()

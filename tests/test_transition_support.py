@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -73,10 +74,33 @@ def _register(root: Path) -> None:
     )
 
 
+def _details(root: Path, name: str, value: dict) -> str:
+    relative = f"audit/fixtures/{name}.json"
+    _write(root / relative, json.dumps(value))
+    return relative
+
+
+def _gate_five_details(root: Path, *, complete: bool = True) -> str:
+    roles = {
+        "prover": "Reviewed the proof argument for completeness.",
+    }
+    if complete:
+        roles.update(
+            {
+                "falsifier": "Searched for counterexamples and failure modes.",
+                "dependency_auditor": "Checked dependency existence and support.",
+                "statement_auditor": "Checked the registered statement and quantifiers.",
+            }
+        )
+    return _details(root, "gate-five-review", {"review_roles": roles})
+
+
 def _add_evidence(
     root: Path,
     evidence_class: str,
     timestamp: str,
+    *,
+    details_json: str | None = None,
 ) -> str:
     result = apply_plan(
         plan_evidence_add(
@@ -88,6 +112,7 @@ def _add_evidence(
             establishes=[f"Fixture {evidence_class} evidence"],
             does_not_establish=["Anything beyond this fixture"],
             source_revision="a" * 40,
+            details_json=details_json,
             timestamp=timestamp,
         )
     )
@@ -111,7 +136,13 @@ def test_gate_promotion_requires_transition_evidence_class(tmp_path: Path) -> No
             timestamp="2026-07-30T19:02:00Z",
         )
 
-    review_id = _add_evidence(root, "REVIEW_INTERNAL", "2026-07-30T19:02:00Z")
+    details = _gate_five_details(root)
+    review_id = _add_evidence(
+        root,
+        "REVIEW_INTERNAL",
+        "2026-07-30T19:02:00Z",
+        details_json=details,
+    )
     apply_plan(
         plan_claim_transition(
             root,
@@ -126,6 +157,64 @@ def test_gate_promotion_requires_transition_evidence_class(tmp_path: Path) -> No
         )
     )
     assert run_checks(root).ok
+
+
+def test_gate_five_requires_all_adversarial_review_roles(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _register(root)
+    details = _gate_five_details(root, complete=False)
+    review_id = _add_evidence(
+        root,
+        "REVIEW_INTERNAL",
+        "2026-07-30T19:02:00Z",
+        details_json=details,
+    )
+
+    with pytest.raises(TransactionError, match="details.review_roles"):
+        plan_claim_transition(
+            root,
+            claim_id="T001",
+            gate=5,
+            reason="Incomplete adversarial review",
+            requested_by="github:tester",
+            approved_by_type="policy",
+            approved_by_id="cruthunas/transition-v1",
+            evidence_ids=[review_id],
+            timestamp="2026-07-30T19:03:00Z",
+        )
+
+
+def test_policy_rejects_manual_gate_five_review_without_roles(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _register(root)
+    review_id = _add_evidence(root, "REVIEW_INTERNAL", "2026-07-30T19:02:00Z")
+    ledger = read_yaml(root / "claims/claims.yaml")
+    ledger["claims"][0]["gate"] = 5
+    ledger["claims"][0]["updated_at"] = "2026-07-30T19:03:00Z"
+    _write(root / "claims/claims.yaml", yaml.safe_dump(ledger, sort_keys=False))
+    transition = {
+        "schema_version": 1,
+        "claim_id": "T001",
+        "axis": "gate",
+        "from": 4,
+        "to": 5,
+        "requested_by": "github:tester",
+        "approved_by": {"type": "policy", "id": "fixture-policy"},
+        "evidence": [review_id],
+        "reason": "Generic review label without required role records",
+        "created_at": "2026-07-30T19:03:00Z",
+    }
+    _write(
+        root / "audit/transitions/T001/20260730T190300Z-gate-4-to-5.yaml",
+        yaml.safe_dump(transition, sort_keys=False),
+    )
+
+    result = run_checks(root)
+    assert any(
+        finding.code == "transition.unsupported_evidence"
+        and "details.review_roles" in finding.message
+        for finding in result.findings
+    )
 
 
 def test_gate_disposition_can_close_permitted_gate(tmp_path: Path) -> None:

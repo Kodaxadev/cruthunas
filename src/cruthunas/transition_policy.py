@@ -19,6 +19,13 @@ GATE_PROMOTION_EVIDENCE = {
     10: (frozenset({"CORRECTION", "REFUTATION"}),),
 }
 
+GATE_5_REVIEW_ROLES = (
+    "prover",
+    "falsifier",
+    "dependency_auditor",
+    "statement_auditor",
+)
+
 
 def evidence_classes(records: Iterable[Mapping[str, Any]]) -> frozenset[str]:
     return frozenset(
@@ -37,6 +44,46 @@ def _missing_groups(
     groups: Iterable[frozenset[str]],
 ) -> list[str]:
     return [_format_group(group) for group in groups if classes.isdisjoint(group)]
+
+
+def _recorded_review_role(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Mapping):
+        return bool(value)
+    if isinstance(value, (list, tuple, set)):
+        return bool(value)
+    return value is True
+
+
+def _gate_five_role_errors(records: tuple[Mapping[str, Any], ...]) -> list[str]:
+    classes = evidence_classes(records)
+    if "GATE_DISPOSITION" in classes:
+        return []
+
+    recorded: set[str] = set()
+    for record in records:
+        if record.get("class") not in {"REVIEW_INTERNAL", "REVIEW_EXTERNAL"}:
+            continue
+        details = record.get("details")
+        if not isinstance(details, Mapping):
+            continue
+        review_roles = details.get("review_roles")
+        if not isinstance(review_roles, Mapping):
+            continue
+        recorded.update(
+            role
+            for role in GATE_5_REVIEW_ROLES
+            if _recorded_review_role(review_roles.get(role))
+        )
+
+    missing = [role for role in GATE_5_REVIEW_ROLES if role not in recorded]
+    if not missing:
+        return []
+    return [
+        "Gate 5 review evidence must record non-empty details.review_roles for: "
+        + ", ".join(missing)
+    ]
 
 
 def required_support_groups(axis: str, before: Any, after: Any) -> tuple[frozenset[str], ...]:
@@ -109,9 +156,13 @@ def transition_support_errors(
     after: Any,
     records: Iterable[Mapping[str, Any]],
 ) -> list[str]:
-    classes = evidence_classes(records)
+    record_list = tuple(records)
+    classes = evidence_classes(record_list)
     missing = _missing_groups(classes, required_support_groups(axis, before, after))
-    return [
+    errors = [
         f"{axis} transition {before!r} -> {after!r} requires transition evidence class {requirement}"
         for requirement in missing
     ]
+    if axis == "gate" and isinstance(before, int) and after == 5 and after > before:
+        errors.extend(_gate_five_role_errors(record_list))
+    return errors

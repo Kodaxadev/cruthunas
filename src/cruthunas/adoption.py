@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .adapters import check_adapters
 from .claim_ids import CANONICAL_CLAIM_ID, legacy_canonical_id, normalize_alias
 from .models import read_yaml
@@ -138,6 +140,12 @@ def _legacy_id_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
         if content is None:
             continue
         relative = str(path.relative_to(root)).replace("\\", "/")
+        if (
+            relative == "claims/schema.json"
+            or relative.startswith("schemas/")
+            or relative.startswith("src/cruthunas/templates/")
+        ):
+            continue
         for match in LEGACY_TOKEN.finditer(content):
             token = match.group(1)
             try:

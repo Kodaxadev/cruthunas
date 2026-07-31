@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
 from cruthunas.bootstrap import plan_project_init
-from cruthunas.claim_ids import legacy_canonical_id
+from cruthunas.claim_ids import legacy_canonical_id, normalize_alias
 from cruthunas.claim_register import plan_claim_proposal, plan_claim_registration
 from cruthunas.evidence_policy import evidence_contract_errors
 from cruthunas.models import read_yaml
@@ -19,12 +20,20 @@ FRAMEWORK_COMMIT = "3dd07da5534410b285a337110106bb65f9ab628e"
 
 
 def _project(tmp_path: Path) -> Path:
-    apply_plan(plan_project_init(
-        tmp_path, mode="experimental", framework_repository="Kodaxadev/cruthunas",
-        framework_commit=FRAMEWORK_COMMIT, framework_version=None,
-        framework_release_manifest=None, profile="mathematics", project_id="fixture",
-        project_title="Fixture", maintainer_github=["tester"],
-    ))
+    apply_plan(
+        plan_project_init(
+            tmp_path,
+            mode="experimental",
+            framework_repository="Kodaxadev/cruthunas",
+            framework_commit=FRAMEWORK_COMMIT,
+            framework_version=None,
+            framework_release_manifest=None,
+            profile="mathematics",
+            project_id="fixture",
+            project_title="Fixture",
+            maintainer_github=["tester"],
+        )
+    )
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/source.md").write_text("# Source\n", encoding="utf-8")
     return tmp_path
@@ -32,22 +41,35 @@ def _project(tmp_path: Path) -> Path:
 
 def _propose(root: Path, claim_id: str, *, aliases: list[str] | None = None, dependencies: list[str] | None = None):
     return plan_claim_proposal(
-        root, claim_id=claim_id, aliases=aliases or [], kind="COMPUTATIONAL_RESULT",
-        title="Fixture", statement="A bounded fixture statement.", scope="fixture",
-        dependencies=dependencies or [], source_document="docs/source.md",
-        limitations=["Fixture only"], proposed_by="github:tester",
+        root,
+        claim_id=claim_id,
+        aliases=aliases or [],
+        kind="COMPUTATIONAL_RESULT",
+        title="Fixture",
+        statement="A bounded fixture statement.",
+        scope="fixture",
+        dependencies=dependencies or [],
+        source_document="docs/source.md",
+        limitations=["Fixture only"],
+        proposed_by="github:tester",
         timestamp="2026-07-31T18:00:00Z",
     )
 
 
 def _register(root: Path, claim_id: str) -> None:
-    apply_plan(plan_claim_registration(
-        root, proposal_path=f"audit/proposals/{claim_id}.yaml",
-        created_by_type="human", created_by_id="github:tester",
-        requested_by="github:tester", approved_by_type="policy",
-        approved_by_id="cruthunas/claim-registration-v1", source_revision="a" * 40,
-        timestamp="2026-07-31T18:01:00Z",
-    ))
+    apply_plan(
+        plan_claim_registration(
+            root,
+            proposal_path=f"audit/proposals/{claim_id}.yaml",
+            created_by_type="human",
+            created_by_id="github:tester",
+            requested_by="github:tester",
+            approved_by_type="policy",
+            approved_by_id="cruthunas/claim-registration-v1",
+            source_revision="a" * 40,
+            timestamp="2026-07-31T18:01:00Z",
+        )
+    )
 
 
 def test_legacy_k4_maps_to_k004() -> None:
@@ -118,20 +140,52 @@ def test_whole_repository_checker_rejects_alias_collisions(tmp_path: Path) -> No
         "schema_version": 1,
         "claims": [
             {
-                "id": claim_id, "aliases": ["K4"], "kind": "COMPUTATIONAL_RESULT",
-                "statement": "Fixture", "scope": "fixture", "epistemic_status": "OPEN",
-                "verification_statuses": ["UNCHECKED"], "publication_status": "WORKING",
-                "gate": 4, "dependencies": [], "evidence": [],
-                "source_document": "docs/source.md", "proof_location": None,
-                "computational_support": [], "formal_declarations": [],
-                "external_reviews": [], "limitations": ["Fixture"],
+                "id": "K004",
+                "aliases": ["K4"],
+                "kind": "COMPUTATIONAL_RESULT",
+                "statement": "Fixture",
+                "scope": "fixture",
+                "epistemic_status": "OPEN",
+                "verification_statuses": ["UNCHECKED"],
+                "publication_status": "WORKING",
+                "gate": 4,
+                "dependencies": [],
+                "evidence": [],
+                "source_document": "docs/source.md",
+                "proof_location": None,
+                "computational_support": [],
+                "formal_declarations": [],
+                "external_reviews": [],
+                "limitations": ["Fixture"],
                 "introduced_at": "2026-07-31T18:00:00Z",
                 "updated_at": "2026-07-31T18:00:00Z",
-            }
-            for claim_id in ("K004", "K005")
+            },
+            {
+                "id": "K005",
+                "aliases": ["K4"],
+                "kind": "COMPUTATIONAL_RESULT",
+                "statement": "Fixture",
+                "scope": "fixture",
+                "epistemic_status": "OPEN",
+                "verification_statuses": ["UNCHECKED"],
+                "publication_status": "WORKING",
+                "gate": 4,
+                "dependencies": [],
+                "evidence": [],
+                "source_document": "docs/source.md",
+                "proof_location": None,
+                "computational_support": [],
+                "formal_declarations": [],
+                "external_reviews": [],
+                "limitations": ["Fixture"],
+                "introduced_at": "2026-07-31T18:00:00Z",
+                "updated_at": "2026-07-31T18:00:00Z",
+            },
         ],
     }
-    (root / "claims/claims.yaml").write_text(yaml.safe_dump(ledger, sort_keys=False), encoding="utf-8")
+    (root / "claims/claims.yaml").write_text(
+        yaml.safe_dump(ledger, sort_keys=False), encoding="utf-8"
+    )
     result = run_checks(root)
     assert "claim.alias_collision" in {item.code for item in result.findings}
 
@@ -139,17 +193,26 @@ def test_whole_repository_checker_rejects_alias_collisions(tmp_path: Path) -> No
 def _computational_record(evidence_class: str, creator_type: str) -> dict:
     artifact = b"{}\n"
     details = {
-        "algorithm": "fixture", "bounds": "fixture", "arithmetic": "exact",
-        "inputs": ["fixture"], "input_hashes": [hashlib.sha256(artifact).hexdigest()],
-        "outputs": ["fixture"], "output_hashes": [hashlib.sha256(artifact).hexdigest()],
-        "runtime": "0s", "resources": "fixture",
+        "algorithm": "fixture",
+        "bounds": "fixture",
+        "arithmetic": "exact",
+        "inputs": ["fixture"],
+        "input_hashes": [hashlib.sha256(artifact).hexdigest()],
+        "outputs": ["fixture"],
+        "output_hashes": [hashlib.sha256(artifact).hexdigest()],
+        "runtime": "0s",
+        "resources": "fixture",
     }
     if evidence_class in {"REPRODUCTION", "REVIEW_EXTERNAL"}:
         details = {
-            "independent": True, "relationship_to_originator": "none",
-            "inputs_received": ["statement"], "saw_original_work": False,
-            "implementation_boundary": "separate", "dependency_boundary": "separate",
-            "result": "agreed", "disagreements": ["none"],
+            "independent": True,
+            "relationship_to_originator": "none",
+            "inputs_received": ["statement"],
+            "saw_original_work": False,
+            "implementation_boundary": "separate",
+            "dependency_boundary": "separate",
+            "result": "agreed",
+            "disagreements": ["none"],
         }
     record = {
         "class": evidence_class,
@@ -157,9 +220,13 @@ def _computational_record(evidence_class: str, creator_type: str) -> dict:
         "commands": ["python fixture.py"],
         "artifacts": [{"path": "fixture.json", "sha256": hashlib.sha256(artifact).hexdigest()}],
         "environment": {
-            "interpreter": "CPython 3.13", "dependencies": ["none"],
-            "operating_system": "fixture", "locale": "C", "timezone": "UTC",
-            "environment_variables": {"PYTHONHASHSEED": "0"}, "random_seeds": [0],
+            "interpreter": "CPython 3.13",
+            "dependencies": ["none"],
+            "operating_system": "fixture",
+            "locale": "C",
+            "timezone": "UTC",
+            "environment_variables": {"PYTHONHASHSEED": "0"},
+            "random_seeds": [0],
         },
         "details": details,
     }
@@ -178,6 +245,6 @@ def test_agent_created_reproduction_cannot_establish_independence() -> None:
     assert any("provenance only" in item and "independent reproduction" in item for item in errors)
 
 
-def test_agent_created_external_review_cannot_establish_review() -> None:
+def test_agent_may_record_named_human_external_review() -> None:
     errors = evidence_contract_errors(_computational_record("REVIEW_EXTERNAL", "agent"))
-    assert any("provenance only" in item and "external review" in item for item in errors)
+    assert not any("provenance only" in item for item in errors)

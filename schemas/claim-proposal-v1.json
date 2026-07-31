@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kodaxadev.github.io/cruthunas/schemas/claim-proposal-v1.json",
+  "title": "Cruthunas Claim Proposal",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "kind",
+    "statement",
+    "dependencies",
+    "source_document",
+    "limitations",
+    "proposed_at",
+    "proposed_by"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[A-Z][0-9]{3,}$"},
+    "kind": {
+      "type": "string",
+      "enum": [
+        "CONJECTURE",
+        "DEFINITION",
+        "LEMMA",
+        "THEOREM",
+        "COROLLARY",
+        "COMPUTATIONAL_RESULT",
+        "COUNTEREXAMPLE"
+      ]
+    },
+    "title": {"type": "string", "minLength": 1},
+    "statement": {"type": "string", "minLength": 1},
+    "scope": {"type": ["string", "null"]},
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][0-9]{3,}$"}
+    },
+    "source_document": {"type": "string", "minLength": 1},
+    "proof_location": {"type": ["string", "null"]},
+    "formal_declarations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "proposed_at": {"type": "string", "format": "date-time"},
+    "proposed_by": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

@@ -1,167 +1,291 @@
 # Research Charter
 
-This document defines Cruthúnas's mandatory lifecycle gates. A conjecture, theorem, or scientific claim governed by this framework must pass through these gates in order. Skipping a gate, or collapsing distinct statuses into one label, is a process violation.
+This document defines the operational requirements for Cruthúnas Gate 0 through Gate 10. `CRUTHUNAS_SPEC.md` is normative when wording here is ambiguous.
 
-## Three independent status axes
+## Claim statuses and gates are separate
 
-Every claim record carries three separate statuses, tracked independently:
+Every registered claim carries:
 
-**Epistemic status**: OPEN, HEURISTIC, COMPUTATIONAL, PROVED, REFUTED
+- one epistemic status: `OPEN`, `HEURISTIC`, `COMPUTATIONAL`, `PROVED`, or `REFUTED`;
+- a cumulative verification set: `UNCHECKED`, `INTERNAL_AUDIT`, `INDEPENDENT_REPRODUCTION`, `FORMALIZED`, and/or `EXTERNAL_REVIEW`;
+- one publication status: `WORKING`, `FROZEN`, `PREPRINT`, `SUBMITTED`, `PUBLISHED`, `CORRECTED`, or `WITHDRAWN`;
+- the highest lifecycle gate supported by evidence.
 
-**Verification status**: UNCHECKED, INTERNAL_AUDIT, INDEPENDENT_REPRODUCTION, FORMALIZED, EXTERNAL_REVIEW
-
-**Publication status**: WORKING, FROZEN, PREPRINT, SUBMITTED, PUBLISHED, CORRECTED, WITHDRAWN
-
-Common errors this prevents: formalized therefore peer-reviewed; computed to 10^7 therefore proved; CI green therefore mathematically reviewed; preprint therefore published; AI adversarial review therefore external review.
+`UNCHECKED` appears alone. Formalization, publication, computation, and external review are not interchangeable.
 
 ## Gate 0 — Candidate intake
 
 Required before serious work begins:
 
-- exact conjecture/claim statement
-- earliest verified source
-- attribution history
-- known variants
-- current status
-- prior computational bounds
-- active researchers and recent activity
-- likely importance or application
-- estimated tractability
-- expected software and formalization requirements
-- reason new tooling (including AI-assisted methods) may add leverage
-- decision: GO, PARK, or REJECT
+- exact candidate statement, with ambiguity preserved rather than silently resolved;
+- earliest verified source and attribution history;
+- known variants and equivalent formulations;
+- current status and best known partial results;
+- prior computational bounds and available datasets/code;
+- active researchers and recent activity;
+- plausible mathematical or real-world importance;
+- estimated tractability and likely bottlenecks;
+- expected software, computation, and formalization requirements;
+- reason AI-assisted methods may add leverage now;
+- duplication and saturation risk;
+- decision: `GO`, `PARK`, or `REJECT`;
+- decision date, decision maker, and recheck condition for `PARK`.
 
-No conjecture receives an informal eponym before the attribution audit.
+No candidate receives an informal eponym before its attribution audit. Gate 0 output is a candidate dossier, not a claim record.
 
 ## Gate 1 — Research charter
 
 Freeze:
 
-- definitions
-- notation
-- index conventions
-- domain and edge cases
-- what constitutes a solution
-- what does not constitute a solution
-- initial assumptions
-- computational/arithmetic requirements
-- explicit stop conditions
-- repository and branch rules
+- definitions;
+- notation;
+- indexing conventions;
+- domain and codomain;
+- quantifier order;
+- boundary and degenerate cases;
+- what constitutes a full solution;
+- what constitutes a partial result;
+- what does not constitute a solution;
+- assumptions and imported facts;
+- computational and arithmetic requirements;
+- explicit stop conditions;
+- repository, branch, and evidence rules;
+- amendment procedure.
 
-Changing a definition later requires a recorded charter amendment.
+Changing a frozen definition requires a dated charter amendment and an impact review of existing claims, fixtures, code, and manuscript text.
 
 ## Gate 2 — Baseline reproduction
 
-Before looking for new mathematics:
+Before claiming new mathematics:
 
-- reproduce published terms and examples
-- independently implement the recurrence or mathematical object
-- test boundary cases
-- locate conflicting definitions
-- establish canonical fixtures
-- record tool versions and hashes
+- reproduce published terms, examples, tables, or special cases;
+- independently implement the recurrence or mathematical object;
+- test boundary cases and index conventions;
+- locate conflicting definitions or transcription errors;
+- establish canonical fixtures with provenance;
+- record tool versions, commands, inputs, outputs, and hashes;
+- compare independent and project implementations;
+- record every disagreement rather than choosing the preferred output silently.
 
-The independent implementation must not import project code. This separation lives in `independent/`.
+The independent implementation lives under `independent/` and MUST NOT import project implementation code. Shared published definitions and fixtures are allowed; shared logic embodying the result under test is not.
 
 ## Gate 3 — Exploration
 
-Exploration can generate: observations, candidate invariants, failed arguments, computational patterns, possible lemmas, counterexamples.
+Exploration may generate:
 
-Nothing discovered here is automatically a numbered claim. Exploration belongs in `docs/research-logs/` until promoted through the claim gate.
+- observations;
+- candidate invariants;
+- failed arguments;
+- computational patterns;
+- possible lemmas;
+- counterexamples;
+- alternative formulations;
+- parked directions.
+
+Exploration records belong in `docs/research-logs/`, `docs/heuristics/`, `docs/refutations/`, or `docs/future-directions/` as appropriate.
+
+Nothing discovered at Gate 3 is automatically a numbered claim. Exploratory language MUST NOT be copied into a manuscript as an established theorem without Gate 4 registration and later evidence.
 
 ## Gate 4 — Claim registration
 
-Every promoted claim receives a permanent ID and record in `claims/claims.yaml`:
+Every promoted claim receives a permanent ID and a record in `claims/claims.yaml` that validates against `claims/schema.json`.
+
+Example:
 
 ```yaml
 id: T018
-statement: "..."
-status: PROVED
+kind: THEOREM
+title: "Finite-start stabilization"
+statement: "For every integer start s with 1 <= s <= 259, ..."
+scope: "Integer starts 1 through 259 inclusive"
+epistemic_status: COMPUTATIONAL
+verification_statuses:
+  - INTERNAL_AUDIT
+  - INDEPENDENT_REPRODUCTION
+publication_status: WORKING
+gate: 6
 dependencies: [L003, T014]
-source_document: docs/proofs/finite-start.md
-proof_location: theorem-18
-computational_support: null
-formal_declaration: Conjecture.finite_start_of_increment
-independent_review: pending
-limitations: "..."
-introduced_commit: "..."
-last_changed_commit: "..."
+evidence:
+  - E-T018-0001
+  - E-T018-0002
+source_document: docs/proofs/T018.md
+proof_location: null
+computational_support:
+  - E-T018-0001
+  - E-T018-0002
+formal_declarations: []
+external_reviews: []
+limitations:
+  - "Does not establish the corresponding universal claim."
+introduced_at: "2026-07-30T19:00:00Z"
+updated_at: "2026-07-30T19:00:00Z"
 ```
 
-The machine-readable claim ledger is canonical. Markdown tables are generated from it, never maintained separately.
+Registration requirements:
+
+- exact statement and scope;
+- permanent unique ID;
+- claim kind;
+- complete dependency list;
+- source document;
+- limitations;
+- initial evidence links, if any;
+- initial status values;
+- date fields.
+
+A restricted result is a separate claim. The broader conjecture remains `OPEN` unless independently resolved.
+
+The ledger is canonical. Markdown tables and dependency graphs are generated from it.
 
 ## Gate 5 — Adversarial proof review
 
-A proof cannot be approved by the same context that derived it. Required roles:
+A proof cannot be approved solely by the context that derived it. Required roles are executed separately enough to preserve disagreement:
 
-- **Prover** — constructs the argument
-- **Falsifier** — searches for counterexamples and hidden assumptions
-- **Dependency auditor** — verifies every imported result
-- **Statement auditor** — checks the proved statement exactly matches the registered statement
-- **Formalizer** (where feasible) — translates the argument independently
+- **Prover** — constructs the argument.
+- **Falsifier** — searches for counterexamples, hidden assumptions, and invalid generalization.
+- **Dependency auditor** — verifies imported results and conditions.
+- **Statement auditor** — checks the proof establishes the exact registered statement.
+- **Formalizer** — where feasible, attempts an independent formal translation.
 
-A fresh model context is useful, but remains internal AI-assisted review, not external mathematical review.
+Each review records:
+
+- claim ID and exact version reviewed;
+- reviewer identity or system/context identifier;
+- inputs provided;
+- findings and severity;
+- unresolved objections;
+- response and disposition;
+- whether the reviewer is internal or external.
+
+A fresh AI context is internal AI-assisted review. It may justify `INTERNAL_AUDIT`; it may not justify `EXTERNAL_REVIEW`.
+
+A claim may become `PROVED` after a complete derivation and required internal review, but the originating context may not be the sole approving reviewer. `EXTERNAL_REVIEW` remains a separate verification mark requiring a named independent human or documented venue process.
 
 ## Gate 6 — Computational evidence
 
-Every computational claim must record: exhaustive vs. sampled; exact search range; inclusivity of bounds; integer type or arbitrary precision; algorithm; source commit; command; inputs and random seeds; output row count; output hash; runtime environment; independent implementation; known unarchived artifacts; what the computation does not establish.
+Every computational evidence record states:
 
-"Checked extensively" is prohibited wording.
+- exhaustive versus sampled method;
+- exact search range and inclusivity;
+- arithmetic representation and overflow policy;
+- algorithm and implementation revision;
+- command and working directory;
+- inputs, random seeds, locale, timezone, and relevant environment variables;
+- toolchain and dependency versions;
+- raw output location, count/summary, and hashes;
+- runtime and resource requirements;
+- independent implementation and its import boundary;
+- known missing or unarchived artifacts;
+- what the computation establishes;
+- what it does not establish.
+
+“Checked extensively,” “verified by computer,” and similarly unbounded wording are prohibited.
+
+A finite computation may support `COMPUTATIONAL` only when the registered statement itself states that finite scope. It does not promote a universal parent claim.
 
 ## Gate 7 — Formal verification
 
-Formalization must record: exact human theorem it corresponds to; declaration name; proof-assistant and version; dependency versions; admitted axioms; absence of placeholders (e.g. `sorry`); whether the formal statement is weaker, equivalent, or stronger; which computational exhaustions remain outside the assistant.
+Formalization records:
 
-Formalization is a proof-development tool, not final decorative validation.
+- exact human claim ID and statement version;
+- declaration names;
+- proof assistant and pinned version;
+- dependency lock and versions;
+- axioms, classical principles, and trusted code base assumptions;
+- absence or presence of placeholders/admitted results;
+- whether the formal statement is weaker, equivalent, or stronger;
+- mapping of every material hypothesis;
+- computations or finite exhaustions that remain outside the assistant;
+- exact build command and successful log/hash.
+
+Formalization is a proof-development and verification modality, not decorative validation. Passing Gate 7 may add `FORMALIZED`; it never adds `EXTERNAL_REVIEW` automatically.
+
+Gate 7 may be marked `not_applicable` only with a recorded rationale, approver, and date. A project cannot claim formal verification when the gate is not applicable.
 
 ## Gate 8 — Manuscript audit
 
 Before a release candidate:
 
-- every theorem maps to the claim ledger
-- every citation is verified against the primary source
-- attribution audit rerun
-- novelty claims softened unless independently established
-- code and paper notation compared
-- limitations included
-- computational ranges preserved
-- AI-use disclosure included
-- author responsibility explicit
-- no stale TODOs, model comments, placeholders, or fabricated references
+- every theorem, lemma, corollary, conjecture, and computational statement maps to the claim ledger;
+- every citation is verified against its primary source where available;
+- attribution audit is rerun;
+- novelty language is bounded by documented search evidence;
+- code, formalization, ledger, and paper notation agree;
+- limitations and unresolved questions are visible;
+- computational ranges and inclusivity are preserved exactly;
+- AI-use disclosure is complete;
+- author responsibility is explicit;
+- external-review status is described accurately;
+- no stale TODOs, model comments, placeholders, fabricated references, or obsolete results remain;
+- manuscript source builds in the canonical environment;
+- PDF/source hashes are recorded as draft release evidence.
+
+Gate 8 may set publication status to `FROZEN`. It does not alter epistemic status merely because the prose is polished.
 
 ## Gate 9 — Release
 
-A release requires: frozen commit; protected tag; deterministic source archive; canonical build environment; PDF and source hashes; CI logs; evidence manifest; release notes; correction policy; immutable release assets where available; DOI archival; external human review status accurately stated.
+A release requires:
+
+- frozen source commit;
+- immutable protected version tag;
+- deterministic source archive;
+- canonical build environment;
+- manuscript/source/artifact hashes;
+- required CI logs at the exact release revision;
+- complete evidence manifest;
+- release notes and known limitations;
+- correction and withdrawal policy;
+- immutable release assets where available;
+- archival identifier or explicit statement that one is pending/not used;
+- external human review status stated without inflation;
+- explicit human authorization to publish.
+
+Generated PDFs and large certificates normally live in workflow or release artifacts, not ordinary Git history.
+
+No release tag may move. A changed artifact requires a new version.
 
 ## Gate 10 — Post-release correction
 
-Assume errors will eventually be discovered. Required mechanisms: public correction log; severity classification; affected claim IDs; whether dependencies remain valid; corrected release; new DOI version where appropriate; no silent rewriting of published artifacts; withdrawal procedure for central failures.
+Assume errors will eventually be discovered. Required mechanisms:
+
+- public correction log;
+- severity classification;
+- affected claim IDs;
+- dependency-impact analysis;
+- status demotions or refutations where required;
+- corrected release and new archival version where appropriate;
+- no silent rewriting of published artifacts;
+- withdrawal procedure for central failures;
+- preservation of the historical record where the venue permits.
+
+A safety-motivated demotion is always allowed. CI must not prevent a correction because the previous promotion record was incomplete.
 
 ## Hard operating rules
 
 - No repository mutation without explicit authorization.
-- No `git add -A` in research repositories. Stage explicit paths.
-- No claim promotion by its originating context.
+- No `git add -A`, `git add .`, or equivalent bulk staging in governed research repositories.
+- Stage explicit paths.
+- No claim promotion by its originating context acting as sole approver.
 - No theorem without a dependency record.
-- No computational statement without an exact range.
-- No "independent" verifier that imports project implementation code.
+- No computational statement without an exact range and scope.
+- No independent verifier that imports project implementation code.
 - No generated binary in Git unless explicitly designated archival source material.
-- No moving tags attached to releases.
+- No moving release tags.
 - No unpinned action, installer, container, or formal toolchain in a release workflow.
 - No novelty or attribution claim based solely on secondary summaries.
-- No external-review label without a named human reviewer or formal venue process.
+- No `EXTERNAL_REVIEW` mark without a named human reviewer or documented venue process.
 - No silent correction.
 - No continuation of a mathematical branch while its claim ledger is stale.
-- No paper release while code, formal statement, and manuscript statement disagree.
+- No paper release while code, formal statement, ledger, and manuscript statement disagree.
 
 ## Framework maturity levels
 
-- **CW-0 — Exploration**: no reliability claim.
-- **CW-1 — Registered**: charter, attribution, and ledger exist.
-- **CW-2 — Internally verified**: proofs audited and computations reproduced.
-- **CW-3 — Reproducible package**: clean-room build and evidence package pass.
-- **CW-4 — Preprint candidate**: manuscript and release audit pass.
-- **CW-5 — Externally reviewed**: named human mathematical review completed.
-- **CW-6 — Published**: accepted by a venue or released with an immutable scholarly record.
+- **CR-0 — Exploration:** specification exists; enforcement incomplete; no reliability claim.
+- **CR-1 — Registered:** canonical spec, charter, schema, and ledger validate.
+- **CR-2 — Locally enforced:** portable skills and deterministic local hooks are tested.
+- **CR-3 — CI enforced:** policy, transition, and documentation checks are required on protected branches.
+- **CR-4 — Reproducible:** a governed project passes clean-room reproduction and evidence packaging.
+- **CR-5 — Externally reviewed:** framework and a governed result receive named independent human review.
+- **CR-6 — Released:** immutable versioned framework release, adoption path, and correction process are operational.
 
-A project cannot skip levels merely because a proof assistant or a large computation is available.
+A project cannot skip levels because a proof assistant, large computation, or AI review is available.

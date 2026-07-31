@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "cruthunas-govern": {
+      "source_git_blob_sha": "42e5109b81906db50d329aa58cb514e7926a9ad3",
+      "targets": [
+        ".claude/skills/cruthunas-govern",
+        ".codex/skills/cruthunas-govern"
+      ]
+    }
+  }
+}

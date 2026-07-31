@@ -1,0 +1,13 @@
+name: Cruthunas policy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    uses: ./.github/workflows/reusable-policy.yml

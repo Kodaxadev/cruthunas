@@ -1,0 +1,24 @@
+minimum_pre_commit_version: "4.0.0"
+repos:
+  - repo: local
+    hooks:
+      - id: cruthunas-policy
+        name: Cruthunas policy
+        entry: python -m cruthunas check --changed
+        language: python
+        additional_dependencies:
+          - PyYAML==6.0.3
+          - jsonschema[format]==4.26.0
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+      - id: cruthunas-adapters
+        name: Cruthunas adapter drift
+        entry: python -m cruthunas adapters check
+        language: python
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+      - id: cruthunas-commit-message
+        name: Cruthunas commit-message contract
+        entry: python hooks/commit_message.py
+        language: system
+        stages: [commit-msg]

@@ -26,6 +26,7 @@ Verification marks are cumulative; `UNCHECKED` appears alone. Publication never 
 - [`RESEARCH_CHARTER.md`](RESEARCH_CHARTER.md) — Gate 0 through Gate 10 procedure.
 - [`docs/EXECUTION_ARCHITECTURE.md`](docs/EXECUTION_ARCHITECTURE.md) — portable skills, local hooks, CLI, CI, releases, and adoption.
 - [`docs/POLICY_MATRIX.md`](docs/POLICY_MATRIX.md) — gate-to-evidence and enforcement map.
+- [`docs/POLICY_KERNEL.md`](docs/POLICY_KERNEL.md) — implemented validation and atomic mutation surface.
 - [`AGENTS.md`](AGENTS.md) — short operational map for coding and research agents.
 - [`claims/claims.yaml`](claims/claims.yaml) — canonical machine-readable claim ledger.
 - [`claims/schema.json`](claims/schema.json) — ledger contract.
@@ -38,16 +39,28 @@ specification → schema/policy → CI → local hooks → agent skills → agen
 
 Agent skills guide repeatable work. Hooks catch mistakes early. CI independently enforces merge and release policy. None of these mechanisms confer mathematical external review; that requires a named independent human or documented venue process.
 
-The first deterministic policy kernel currently provides:
+The deterministic implementation currently provides:
 
-- claim-ledger, evidence, transition, adoption-manifest, and exemption schemas;
+- claim-ledger, claim-proposal, evidence, transition, adoption-manifest, and exemption schemas;
 - semantic checks for dependencies, evidence-backed statuses, registration history, and transition chains;
+- validated-before-write commands for claim proposal, registration, evidence creation, and status/gate transitions;
 - workflow action pinning and generated-binary checks;
 - independent-verifier import-boundary checks;
 - generated Claude/Codex skill adapters with drift detection;
 - `cruthunas check`, `cruthunas status`, and adapter commands;
 - pre-commit, commit-message, pre-push, and Claude Code hooks;
 - a pinned reusable GitHub Actions policy workflow and regression tests.
+
+## Governed mutation workflow
+
+```bash
+cruthunas claim propose --help
+cruthunas claim register --help
+cruthunas evidence add --help
+cruthunas claim transition --help
+```
+
+Each mutating command validates the complete prospective repository before writing, previews the affected files, and requires confirmation. Use `--dry-run --json` for a machine-readable non-mutating preview. Use `--yes` only when the current task explicitly authorizes the mutation.
 
 ## Development quick start
 
@@ -87,7 +100,7 @@ See [`docs/STRUCTURE.md`](docs/STRUCTURE.md) for the governed-project layout. Th
 
 ## Status
 
-This project remains **CR-0 — Exploration**. The first deterministic policy kernel is implemented and tested on the draft execution-layer branch, but no framework release or end-to-end governed claim has been completed. No project should claim Cruthúnas conformance against an unreleased moving branch.
+This project remains **CR-0 — Exploration**. The deterministic policy kernel and initial atomic command layer are implemented, but no framework release or end-to-end governed claim has been completed. No project should claim Cruthúnas conformance against an unreleased moving branch.
 
 ## License
 

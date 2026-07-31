@@ -127,19 +127,26 @@ Demotions and refutations are always permitted when new evidence requires them. 
 
 ## 8. Evidence classes
 
-Evidence records use one of these classes:
+Every evidence record uses exactly one of these typed classes:
 
-- `SOURCE` — primary literature or attribution evidence.
-- `DERIVATION` — written mathematical argument.
-- `COMPUTATION` — executable search, experiment, or certificate.
-- `REPRODUCTION` — independent reimplementation and result comparison.
-- `FORMALIZATION` — proof-assistant declarations and build record.
-- `REVIEW` — structured internal or external review.
-- `MANUSCRIPT` — audited paper source and build.
-- `RELEASE` — frozen artifacts, hashes, attestations, and archival identifiers.
-- `CORRECTION` — post-release change or withdrawal evidence.
+- `ATTRIBUTION` — primary literature, provenance, or attribution evidence.
+- `CHARTER` — frozen definitions, scope, assumptions, or research-charter evidence.
+- `BASELINE` — published examples, canonical fixtures, or baseline-reproduction evidence.
+- `CLAIM_REGISTRATION` — evidence that an exact statement, scope, dependencies, and limitations were registered at Gate 4.
+- `DERIVATION` — a rigorous or non-rigorous mathematical derivation, heuristic argument, or structured reasoning record that does not by itself claim a complete proof.
+- `PROOF` — a written mathematical derivation or proof for the exact registered statement.
+- `COMPUTATION` — an executable search, experiment, certificate, or bounded computational result.
+- `REPRODUCTION` — an independent reimplementation and result-comparison record.
+- `FORMALIZATION` — proof-assistant declarations, assumptions, mappings, and build evidence.
+- `REVIEW_INTERNAL` — structured review by the originator, originating team, or an internal AI-assisted process.
+- `REVIEW_EXTERNAL` — structured review by a named independent human or documented venue process.
+- `MANUSCRIPT_AUDIT` — audited manuscript source, theorem mapping, citation review, and build evidence.
+- `GATE_DISPOSITION` — a recorded `not_applicable` disposition, rationale, and approval for a gate that the specification permits to be inapplicable.
+- `RELEASE` — frozen artifacts, hashes, attestations, archival identifiers, and release evidence.
+- `CORRECTION` — a post-release correction, replacement, or withdrawal record.
+- `REFUTATION` — a counterexample, disproof, or other evidence establishing that a registered claim is false.
 
-Every evidence record MUST state what it establishes and what it does not establish.
+`REVIEW_EXTERNAL` MUST identify a human reviewer or venue. AI-only review uses `REVIEW_INTERNAL` and cannot establish `EXTERNAL_REVIEW`. Every evidence record MUST state what it establishes and what it does not establish.
 
 ## 9. Independence
 

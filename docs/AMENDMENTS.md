@@ -34,4 +34,29 @@ migration: <migration document or none>
 - Defined transition records as full before/after axis states so their chains can be audited deterministically.
 - Implemented the first policy kernel, generated-adapter checks, local hooks, Claude Code hooks, and reusable policy CI.
 
-No released-specification amendments exist yet. This entry records pre-v1.0.0 design evolution and makes no backward-compatibility claim.
+### 2026-07-31 — Evidence-class authority alignment
+
+**Status:** Draft, pre-release  
+**Version decision:** Remain at draft specification v1.0; no released specification exists to version or migrate.
+
+- Replaced the obsolete broad evidence identifiers in Section 8 with the exact typed identifiers already used by the evidence schema and deterministic policy kernel.
+- Split internal and external review evidence so AI-only review cannot be represented as external review.
+- Added an authority-alignment regression test covering the specification, schema, and CLI constants.
+
+**Compatibility impact:** The executable schema and command interface are unchanged. Pre-release prose references to `SOURCE`, `DERIVATION`, `REVIEW`, or `MANUSCRIPT` as evidence identifiers must use the corresponding typed class.  
+**Migration:** None for released projects; no Cruthúnas release or governed-project adoption exists yet.
+
+### 2026-07-31 — Transition-evidence support rules
+
+**Status:** Draft, pre-release  
+**Version decision:** Remain at draft specification v1.0; no released specification exists to version or migrate.
+
+- Added `DERIVATION` for heuristic mathematical reasoning that is neither a complete proof nor merely an internal review.
+- Added `GATE_DISPOSITION` for typed `not_applicable` gate closures permitted by the lifecycle specification.
+- Required the evidence cited by each transition record to support that transition's exact gate or status change; unrelated evidence linked elsewhere on the claim is insufficient.
+- Added deterministic requester/originator versus sole-human-approver checks for transitions and claim registration.
+
+**Compatibility impact:** Draft evidence records may use the two new typed classes. Existing draft transitions that cite evidence unrelated to their own promoted axis will fail validation until corrected.  
+**Migration:** None for released projects; no Cruthúnas release or governed-project adoption exists yet.
+
+No released-specification amendments exist yet. These entries record pre-v1.0.0 design evolution and make no backward-compatibility claim.

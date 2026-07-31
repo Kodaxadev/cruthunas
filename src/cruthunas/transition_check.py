@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .evidence_policy import normalized_identity
 from .models import Finding, read_yaml, yaml_files
-
+from .transition_policy import transition_support_errors
 
 AXIS_FIELD = {
     "gate": "gate",
@@ -18,12 +20,38 @@ DEFAULT_STATE: dict[str, Any] = {
     "verification": ["UNCHECKED"],
     "publication": "WORKING",
 }
+_MIN_TIMESTAMP = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _normalized(axis: str, value: Any) -> Any:
     if axis == "verification" and isinstance(value, list):
         return sorted(value)
     return value
+
+
+def _timestamp_value(record: dict[str, Any]) -> datetime | None:
+    value = record.get("created_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _transition_sort_key(item: tuple[Path, dict[str, Any]]) -> tuple[datetime, str]:
+    path, record = item
+    return (_timestamp_value(record) or _MIN_TIMESTAMP, str(path))
+
+
+def _human_approver(record: dict[str, Any]) -> str | None:
+    approved = record.get("approved_by")
+    if isinstance(approved, dict) and approved.get("type") == "human":
+        return normalized_identity(approved.get("id"))
+    return None
 
 
 def check_transition_semantics(
@@ -45,42 +73,117 @@ def check_transition_semantics(
         axis = record.get("axis")
         if not isinstance(claim_id, str) or axis not in AXIS_FIELD:
             continue
+        relative = str(path.relative_to(root))
         grouped[(claim_id, axis)].append((path, record))
         claim = claims.get(claim_id)
         if claim is None:
             continue
-        linked_evidence = set(claim.get("evidence", []))
-        for evidence_id in record.get("evidence", []):
-            evidence_record = evidence.get(evidence_id)
-            if evidence_record and evidence_record.get("claim_id") != claim_id:
-                findings.append(
-                    Finding(
-                        "transition.foreign_evidence",
-                        f"Transition for {claim_id} uses evidence owned by {evidence_record.get('claim_id')}: {evidence_id}",
-                        str(path.relative_to(root)),
-                    )
+
+        approver = _human_approver(record)
+        requester = normalized_identity(record.get("requested_by"))
+        if approver is not None and approver == requester:
+            findings.append(
+                Finding(
+                    "transition.self_approval",
+                    f"Human requester {record.get('requested_by')} cannot be the sole human approver",
+                    relative,
                 )
+            )
+
+        linked_evidence = set(claim.get("evidence", []))
+        selected_ids = record.get("evidence", [])
+        selected_records: list[dict[str, Any]] = []
+        all_present = isinstance(selected_ids, list)
+        transition_time = _timestamp_value(record)
+        for evidence_id in selected_ids if isinstance(selected_ids, list) else []:
+            evidence_record = evidence.get(evidence_id)
+            if evidence_record is None:
+                all_present = False
+            else:
+                selected_records.append(evidence_record)
+                if evidence_record.get("claim_id") != claim_id:
+                    findings.append(
+                        Finding(
+                            "transition.foreign_evidence",
+                            f"Transition for {claim_id} uses evidence owned by {evidence_record.get('claim_id')}: {evidence_id}",
+                            relative,
+                        )
+                    )
+                evidence_time = _timestamp_value(evidence_record)
+                if (
+                    transition_time is not None
+                    and evidence_time is not None
+                    and evidence_time > transition_time
+                ):
+                    findings.append(
+                        Finding(
+                            "transition.future_evidence",
+                            f"Transition evidence {evidence_id} was created after the transition",
+                            relative,
+                        )
+                    )
+                created_by = evidence_record.get("created_by")
+                creator = (
+                    normalized_identity(created_by.get("id"))
+                    if isinstance(created_by, dict) and created_by.get("type") == "human"
+                    else None
+                )
+                if approver is not None and creator == approver:
+                    findings.append(
+                        Finding(
+                            "transition.evidence_creator_self_approval",
+                            f"Human evidence creator {created_by.get('id')} cannot solely approve a transition relying on that evidence",
+                            relative,
+                        )
+                    )
             if evidence_id not in linked_evidence:
                 findings.append(
                     Finding(
                         "transition.unlinked_evidence",
                         f"Transition evidence {evidence_id} is not linked from claim {claim_id}",
-                        str(path.relative_to(root)),
+                        relative,
+                    )
+                )
+        if all_present and selected_records:
+            before = _normalized(axis, record.get("from"))
+            after = _normalized(axis, record.get("to"))
+            for message in transition_support_errors(axis, before, after, selected_records):
+                findings.append(
+                    Finding(
+                        "transition.unsupported_evidence",
+                        message,
+                        relative,
                     )
                 )
 
     for (claim_id, axis), items in grouped.items():
-        items.sort(key=lambda item: str(item[1].get("created_at", "")))
+        items.sort(key=_transition_sort_key)
         previous_to: Any = None
+        previous_time: datetime | None = None
         for index, (path, record) in enumerate(items):
+            relative = str(path.relative_to(root))
             before = _normalized(axis, record.get("from"))
             after = _normalized(axis, record.get("to"))
+            current_time = _timestamp_value(record)
+            if (
+                index
+                and current_time is not None
+                and previous_time is not None
+                and current_time <= previous_time
+            ):
+                findings.append(
+                    Finding(
+                        "transition.non_increasing_timestamp",
+                        f"Transition timestamps for {claim_id}/{axis} must be strictly increasing",
+                        relative,
+                    )
+                )
             if before == after:
                 findings.append(
                     Finding(
                         "transition.noop",
                         f"Transition does not change the {axis} axis",
-                        str(path.relative_to(root)),
+                        relative,
                     )
                 )
             if index and before != previous_to:
@@ -88,31 +191,35 @@ def check_transition_semantics(
                     Finding(
                         "transition.broken_chain",
                         f"Transition chain for {claim_id}/{axis} expects from={previous_to!r}, found {before!r}",
-                        str(path.relative_to(root)),
+                        relative,
                     )
                 )
-            if axis == "gate" and isinstance(before, int) and isinstance(after, int):
-                if after > before + 1:
-                    findings.append(
-                        Finding(
-                            "transition.gate_skip",
-                            f"Gate transition skips from {before} to {after}",
-                            str(path.relative_to(root)),
-                        )
+            if (
+                axis == "gate"
+                and isinstance(before, int)
+                and isinstance(after, int)
+                and after > before + 1
+            ):
+                findings.append(
+                    Finding(
+                        "transition.gate_skip",
+                        f"Gate transition skips from {before} to {after}",
+                        relative,
                     )
+                )
             previous_to = after
+            previous_time = current_time
 
         claim = claims.get(claim_id)
         if claim is None:
             continue
         expected = _normalized(axis, claim.get(AXIS_FIELD[axis]))
         if previous_to != expected:
-            last_path = items[-1][0]
             findings.append(
                 Finding(
                     "transition.ledger_mismatch",
                     f"Last {axis} transition ends at {previous_to!r}, but ledger records {expected!r}",
-                    str(last_path.relative_to(root)),
+                    str(items[-1][0].relative_to(root)),
                 )
             )
 
@@ -127,29 +234,56 @@ def check_transition_semantics(
                 )
             )
         else:
-            gate_items.sort(key=lambda item: str(item[1].get("created_at", "")))
+            gate_items.sort(key=_transition_sort_key)
             first_path, first = gate_items[0]
+            relative = str(first_path.relative_to(root))
             if first.get("from") != 3 or first.get("to") != 4:
                 findings.append(
                     Finding(
                         "transition.registration_invalid",
                         f"First gate transition for {claim_id} must be 3 -> 4",
-                        str(first_path.relative_to(root)),
+                        relative,
                     )
                 )
-            registration_classes = {
-                evidence[item].get("class")
-                for item in first.get("evidence", [])
-                if item in evidence
-            }
-            if "CLAIM_REGISTRATION" not in registration_classes:
+            registration_ids = first.get("evidence", [])
+            registration_records = [
+                evidence[item]
+                for item in registration_ids
+                if item in evidence and evidence[item].get("class") == "CLAIM_REGISTRATION"
+            ]
+            if not registration_records:
                 findings.append(
                     Finding(
                         "transition.registration_evidence_missing",
                         f"Gate 3 -> 4 transition for {claim_id} requires CLAIM_REGISTRATION evidence",
-                        str(first_path.relative_to(root)),
+                        relative,
                     )
                 )
+
+            approver = _human_approver(first)
+            if approver is not None:
+                originators = {
+                    normalized_identity(record.get("created_by", {}).get("id"))
+                    for record in registration_records
+                    if isinstance(record.get("created_by"), dict)
+                }
+                originators.add(normalized_identity(first.get("requested_by")))
+                proposal_path = root / "audit/proposals" / f"{claim_id}.yaml"
+                if proposal_path.is_file():
+                    try:
+                        proposal = read_yaml(proposal_path)
+                    except Exception:
+                        proposal = None
+                    if isinstance(proposal, dict):
+                        originators.add(normalized_identity(proposal.get("proposed_by")))
+                if approver in originators:
+                    findings.append(
+                        Finding(
+                            "transition.registration_self_approval",
+                            f"Human claim originator or requester cannot be the sole human registration approver",
+                            relative,
+                        )
+                    )
 
         for axis, default in DEFAULT_STATE.items():
             current = _normalized(axis, claim.get(AXIS_FIELD[axis]))
@@ -161,5 +295,4 @@ def check_transition_semantics(
                         "claims/claims.yaml",
                     )
                 )
-
     return findings

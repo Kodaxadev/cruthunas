@@ -35,6 +35,10 @@ def _cycle(claims: dict[str, dict[str, Any]]) -> list[str] | None:
     return None
 
 
+def _nonblank(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 def check_claims(
     root: Path,
 ) -> tuple[dict[str, dict[str, Any]], list[Finding]]:
@@ -67,6 +71,25 @@ def check_claims(
             )
         else:
             claims[claim_id] = claim
+        if not _nonblank(claim.get("statement")):
+            findings.append(
+                Finding(
+                    "claim.blank_statement",
+                    f"Claim {claim_id} statement must contain non-whitespace text",
+                    "claims/claims.yaml",
+                )
+            )
+        limitations = claim.get("limitations")
+        if not isinstance(limitations, list) or not limitations or not all(
+            _nonblank(item) for item in limitations
+        ):
+            findings.append(
+                Finding(
+                    "claim.blank_limitation",
+                    f"Claim {claim_id} requires at least one non-whitespace limitation",
+                    "claims/claims.yaml",
+                )
+            )
         if claim.get("gate", 0) < 4:
             findings.append(
                 Finding(

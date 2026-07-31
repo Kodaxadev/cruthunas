@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  policy:
+  linux:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -28,3 +28,63 @@ jobs:
         run: cruthunas adapters check
       - name: Validate repository
         run: cruthunas check --all --json
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements/policy.txt
+      - name: Install policy kernel
+        run: python -m pip install --requirement requirements/policy.txt --editable .
+      - name: Run policy tests
+        run: python -m pytest
+      - name: Check generated skill adapters
+        run: python -m cruthunas adapters check
+      - name: Validate repository
+        run: python -m cruthunas check --all --json
+
+  python311:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements/policy.txt
+      - name: Install policy kernel
+        run: python -m pip install --requirement requirements/policy.txt --editable .
+      - name: Run policy tests
+        run: python -m pytest
+      - name: Check generated skill adapters
+        run: cruthunas adapters check
+      - name: Validate repository
+        run: cruthunas check --all --json
+
+  policy:
+    name: policy
+    if: always()
+    needs: [linux, windows, python311]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require Linux and Windows policy success
+        env:
+          LINUX_RESULT: ${{ needs.linux.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+          PYTHON311_RESULT: ${{ needs.python311.result }}
+        run: |
+          test "$LINUX_RESULT" = success
+          test "$WINDOWS_RESULT" = success
+          test "$PYTHON311_RESULT" = success

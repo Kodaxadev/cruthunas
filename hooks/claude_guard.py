@@ -23,7 +23,12 @@ DENY = [
         "Moving or replacing a tag is forbidden.",
     ),
 ]
-PROTECTED_FILES = {"claims/claims.yaml", "CORRECTIONS.md"}
+PROTECTED_SUFFIXES = {"claims/claims.yaml", "CORRECTIONS.md"}
+PROTECTED_SEGMENTS = (
+    "/audit/proposals/",
+    "/audit/evidence/",
+    "/audit/transitions/",
+)
 
 
 def command_denial(command: str) -> str | None:
@@ -31,6 +36,13 @@ def command_denial(command: str) -> str | None:
         if pattern.search(command):
             return reason
     return None
+
+
+def protected_record(path: str) -> bool:
+    normalized = "/" + path.replace("\\", "/").lstrip("/")
+    return any(normalized.endswith("/" + item) for item in PROTECTED_SUFFIXES) or any(
+        segment in normalized for segment in PROTECTED_SEGMENTS
+    )
 
 
 def main() -> int:
@@ -43,12 +55,13 @@ def main() -> int:
         reason = command_denial(str(tool_input.get("command", "")))
         decision = "deny" if reason else "allow"
     elif tool_name in {"Write", "Edit"}:
-        path = str(tool_input.get("file_path", "")).replace("\\", "/")
-        if any(path.endswith(item) for item in PROTECTED_FILES):
+        path = str(tool_input.get("file_path", ""))
+        if protected_record(path):
             decision = "ask"
             reason = (
-                "This is a canonical status/correction record. Confirm explicit "
-                "authorization and use the transition workflow where applicable."
+                "This is a canonical claim or audit record. Confirm explicit authorization "
+                "and use cruthunas claim propose/register/transition or evidence add instead "
+                "of editing the record freehand."
             )
     if decision == "allow":
         return 0

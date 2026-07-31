@@ -5,6 +5,7 @@ from pathlib import Path
 from .claims_check import check_claims
 from .models import CheckResult
 from .project_check import check_project
+from .proposals_check import check_proposals
 from .records_check import check_records
 from .repository_check import check_repository
 
@@ -12,6 +13,7 @@ from .repository_check import check_repository
 def run_checks(root: Path) -> CheckResult:
     root = root.resolve()
     claims, findings = check_claims(root)
+    findings.extend(check_proposals(root, claims))
     evidence, transitions, record_findings = check_records(root, claims)
     findings.extend(record_findings)
     findings.extend(check_project(root))
@@ -33,8 +35,5 @@ def format_text(result: CheckResult) -> str:
             f"{result.evidence_count} evidence records, {result.transition_count} transitions."
         )
     lines = ["Cruthunas policy check failed:"]
-    lines.extend(
-        f"- [{item.code}] {item.path}: {item.message}"
-        for item in result.findings
-    )
+    lines.extend(f"- [{item.code}] {item.path}: {item.message}" for item in result.findings)
     return "\n".join(lines)

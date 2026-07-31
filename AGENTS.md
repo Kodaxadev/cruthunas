@@ -43,6 +43,15 @@ Before changing files:
 4. use a branch for substantive work;
 5. preserve existing history and record limitations.
 
+Use the transaction CLI for governed records:
+
+- `cruthunas claim propose` for a non-ledger proposal;
+- `cruthunas claim register` for the claim, registration evidence, and Gate 3 → 4 history;
+- `cruthunas evidence add` for evidence creation and ledger linkage;
+- `cruthunas claim transition` for gate or status changes.
+
+Do not edit `claims/claims.yaml`, `audit/proposals/`, `audit/evidence/`, or `audit/transitions/` freehand when the command can express the operation. Mutating commands preview and validate the prospective repository before writing. `--yes` still requires explicit authorization from the current task.
+
 Before declaring completion:
 
 1. inspect the diff;
@@ -57,4 +66,4 @@ Canonical skills live under `skills/`. Use the narrowest applicable skill. A ski
 
 ## Current maturity
 
-Until the policy kernel, hooks, and required CI are implemented and tested, the framework remains `CR-0` regardless of document completeness.
+Cruthúnas remains `CR-0` until the maturity evidence required by the normative specification is recorded. Implemented commands, hooks, or CI checks do not raise maturity by declaration.

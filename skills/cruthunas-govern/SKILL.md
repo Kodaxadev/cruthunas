@@ -61,7 +61,14 @@ For a new or changed claim:
 7. do not self-approve the originating work;
 8. keep `UNCHECKED` alone or replace it with the applicable cumulative verification marks.
 
-Use the CLI transition workflow when available. Do not edit protected status fields freehand.
+Use the transaction commands instead of editing governed records freehand:
+
+- `cruthunas claim propose` creates a reviewable proposal without entering the ledger;
+- `cruthunas claim register` creates the claim, registration evidence, and Gate 3 → 4 transition together;
+- `cruthunas evidence add` creates and links an evidence record;
+- `cruthunas claim transition` changes claim axes with linked evidence and transition history.
+
+Mutating commands preview and validate the complete prospective state. Use `--yes` only when the current task explicitly authorizes the mutation.
 
 ## Computational work
 

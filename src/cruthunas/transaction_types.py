@@ -75,6 +75,12 @@ class TransactionError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class PlannedRead:
+    path: str
+    expected_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class PlannedWrite:
     path: str
     content: bytes
@@ -85,7 +91,9 @@ class PlannedWrite:
 class TransactionPlan:
     root: Path
     operation: str
+    reads: tuple[PlannedRead, ...]
     writes: tuple[PlannedWrite, ...]
+    expected_git_head: str | None
     preview: dict[str, Any]
 
     def to_dict(self, *, applied: bool = False) -> dict[str, Any]:
@@ -93,6 +101,7 @@ class TransactionPlan:
             "operation": self.operation,
             "applied": applied,
             "root": str(self.root),
+            "reads": [item.path for item in self.reads],
             "writes": [item.path for item in self.writes],
             **self.preview,
         }
@@ -100,6 +109,13 @@ class TransactionPlan:
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _planned_read(root: Path, relative: str) -> PlannedRead:
+    target = _resolve_relative(root, relative)
+    if not target.is_file():
+        raise TransactionError(f"Transaction input is not a file: {relative}")
+    return PlannedRead(relative, _sha256_bytes(target.read_bytes()))
 
 
 def _planned_write(root: Path, relative: str, content: bytes) -> PlannedWrite:
@@ -174,6 +190,32 @@ def _latest_transition_timestamp(root: Path, claim_id: str, axis: str) -> str | 
     return latest[1] if latest else None
 
 
+def _run_git(root: Path, *arguments: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise TransactionError(
+            "Could not inspect Git state; pass --source-revision explicitly when using a non-Git source tree",
+            exit_code=3,
+        ) from exc
+    return completed.stdout.strip()
+
+
+def _git_head(root: Path) -> str:
+    revision = _run_git(root, "rev-parse", "HEAD")
+    if not FULL_SHA.fullmatch(revision):
+        raise TransactionError(
+            "Git returned an invalid source revision",
+            exit_code=3,
+        )
+    return revision
+
+
 def _source_revision(root: Path, override: str | None) -> str:
     if override is not None:
         if not FULL_SHA.fullmatch(override):
@@ -182,23 +224,13 @@ def _source_revision(root: Path, override: str | None) -> str:
                 exit_code=2,
             )
         return override
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    revision = _git_head(root)
+    dirty = _run_git(root, "status", "--porcelain=v1", "--untracked-files=all")
+    if dirty:
         raise TransactionError(
-            "Could not determine source revision; pass --source-revision explicitly",
+            "Working tree is dirty; commit the source state before recording evidence or pass --source-revision explicitly",
             exit_code=3,
-        ) from exc
-    revision = completed.stdout.strip()
-    if not FULL_SHA.fullmatch(revision):
-        raise TransactionError(
-            "Git returned an invalid source revision; pass --source-revision explicitly",
-            exit_code=3,
+            details={"dirty_paths": dirty.splitlines()},
         )
     return revision
 

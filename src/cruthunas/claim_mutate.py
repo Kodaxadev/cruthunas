@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .models import read_yaml, yaml_files
 from .transaction_evidence import (
     _build_evidence,
     _evidence_records,
@@ -30,6 +31,19 @@ from .transaction_types import (
     _timestamp,
     _yaml_bytes,
 )
+
+def _evidence_input_paths(root: Path, evidence_ids: list[str]) -> list[str]:
+    wanted = set(evidence_ids)
+    paths: dict[str, str] = {}
+    for path in yaml_files(root, "audit/evidence"):
+        try:
+            record = read_yaml(path)
+        except Exception:
+            continue
+        if isinstance(record, dict) and record.get("id") in wanted:
+            paths[record["id"]] = str(path.relative_to(root)).replace("\\", "/")
+    return [paths[evidence_id] for evidence_id in evidence_ids if evidence_id in paths]
+
 
 def plan_evidence_add(
     root: Path,
@@ -62,6 +76,8 @@ def plan_evidence_add(
     if selected_id in records or (root / f"audit/evidence/{claim_id}/{selected_id}.yaml").exists():
         raise TransactionError(f"Evidence ID already exists: {selected_id}")
     created_at = _timestamp(timestamp)
+    revision = _source_revision(root, source_revision)
+    expected_git_head = revision if source_revision is None else None
     evidence = _build_evidence(
         root,
         claim_id=claim_id,
@@ -72,7 +88,7 @@ def plan_evidence_add(
         created_by_id=created_by_id,
         establishes=establishes,
         does_not_establish=does_not_establish,
-        source_revision=_source_revision(root, source_revision),
+        source_revision=revision,
         artifacts=artifacts or [],
         commands=commands or [],
         environment_json=environment_json,
@@ -92,6 +108,8 @@ def plan_evidence_add(
             (path, _yaml_bytes(evidence)),
         ],
         {"claim_id": claim_id, "evidence_ids": [selected_id], "evidence_paths": [path]},
+        reads=[*(artifacts or []), *([environment_json] if environment_json else [])],
+        expected_git_head=expected_git_head,
     )
 
 
@@ -158,6 +176,7 @@ def plan_claim_transition(
             raise TransactionError(f"Transition evidence belongs to another claim: {evidence_id}")
     new_evidence: dict[str, Any] | None = None
     new_evidence_path: str | None = None
+    expected_git_head: str | None = None
     if new_evidence_class is not None:
         if created_by_type is None or created_by_id is None:
             raise TransactionError(
@@ -168,6 +187,8 @@ def plan_claim_transition(
         while new_id in selected_evidence:
             number = int(new_id.rsplit("-", 1)[1]) + 1
             new_id = f"E-{claim_id}-{number:04d}"
+        revision = _source_revision(root, source_revision)
+        expected_git_head = revision if source_revision is None else None
         new_evidence = _build_evidence(
             root,
             claim_id=claim_id,
@@ -178,7 +199,7 @@ def plan_claim_transition(
             created_by_id=created_by_id,
             establishes=establishes or [],
             does_not_establish=does_not_establish or [],
-            source_revision=_source_revision(root, source_revision),
+            source_revision=revision,
             artifacts=artifacts or [],
             commands=commands or [],
             environment_json=environment_json,
@@ -277,4 +298,10 @@ def plan_claim_transition(
                 for axis, before, after in changes
             ],
         },
+        reads=[
+            *_evidence_input_paths(root, selected_evidence),
+            *(artifacts or []),
+            *([environment_json] if environment_json else []),
+        ],
+        expected_git_head=expected_git_head,
     )

@@ -226,3 +226,201 @@ def test_evidence_add_records_artifact_hash_and_environment(tmp_path: Path) -> N
     assert len(record["artifacts"][0]["sha256"]) == 64
     assert record["environment"] == {"python": "3.13"}
     assert record["commands"] == ["python verify.py"]
+
+
+def _git(root: Path, *arguments: str) -> str:
+    import subprocess
+
+    completed = subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _commit_fixture(root: Path, message: str = "fixture") -> str:
+    if not (root / ".git").exists():
+        _git(root, "init")
+        _git(root, "config", "user.name", "Fixture")
+        _git(root, "config", "user.email", "fixture@example.invalid")
+    files = [
+        str(path.relative_to(root))
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and ".git" not in path.parts
+    ]
+    _git(root, "add", "--", *files)
+    _git(root, "commit", "-m", message)
+    return _git(root, "rev-parse", "HEAD")
+
+
+def test_registration_rejects_proposal_changed_after_preview(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    apply_plan(
+        plan_claim_proposal(
+            root,
+            claim_id="T001",
+            kind="THEOREM",
+            statement="For every n in {1}, n = 1.",
+            source_document="docs/proofs/T001.md",
+            limitations=["Fixture only"],
+            proposed_by="github:tester",
+            timestamp="2026-07-30T19:00:00Z",
+        )
+    )
+    plan = plan_claim_registration(
+        root,
+        proposal_path="audit/proposals/T001.yaml",
+        created_by_type="human",
+        created_by_id="github:tester",
+        requested_by="github:tester",
+        approved_by_type="policy",
+        approved_by_id="cruthunas/claim-registration-v1",
+        source_revision="a" * 40,
+        timestamp="2026-07-30T19:01:00Z",
+    )
+    proposal_path = root / "audit/proposals/T001.yaml"
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    proposal["statement"] = "Changed after preview."
+    proposal_path.write_text(yaml.safe_dump(proposal, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(TransactionError, match="Transaction input changed"):
+        apply_plan(plan)
+
+    assert read_yaml(root / "claims/claims.yaml")["claims"] == []
+    assert not (root / "audit/evidence/T001").exists()
+    assert not (root / "audit/transitions/T001").exists()
+
+
+def test_evidence_add_rejects_artifact_changed_after_preview(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _register(root)
+    artifact = root / "certificates/T001/result.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text('{"value": 1}\n', encoding="utf-8")
+    plan = plan_evidence_add(
+        root,
+        claim_id="T001",
+        evidence_class="COMPUTATION",
+        created_by_type="human",
+        created_by_id="github:tester",
+        establishes=["Fixture computation completed"],
+        does_not_establish=["Anything outside the fixture"],
+        source_revision="a" * 40,
+        artifacts=["certificates/T001/result.json"],
+        timestamp="2026-07-30T19:02:00Z",
+    )
+    artifact.write_text('{"value": 2}\n', encoding="utf-8")
+
+    with pytest.raises(TransactionError, match="Transaction input changed"):
+        apply_plan(plan)
+
+    claim = read_yaml(root / "claims/claims.yaml")["claims"][0]
+    assert claim["evidence"] == ["E-T001-0001"]
+    assert not (root / "audit/evidence/T001/E-T001-0002.yaml").exists()
+
+
+def test_transition_rejects_evidence_changed_after_preview(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _register(root)
+    apply_plan(
+        plan_evidence_add(
+            root,
+            claim_id="T001",
+            evidence_class="REVIEW_INTERNAL",
+            created_by_type="agent",
+            created_by_id="audit-agent",
+            establishes=["Internal audit completed"],
+            does_not_establish=["External review"],
+            source_revision="a" * 40,
+            timestamp="2026-07-30T19:02:00Z",
+        )
+    )
+    plan = plan_claim_transition(
+        root,
+        claim_id="T001",
+        verification_add=["INTERNAL_AUDIT"],
+        reason="Internal audit recorded",
+        requested_by="github:tester",
+        approved_by_type="policy",
+        approved_by_id="cruthunas/transition-v1",
+        evidence_ids=["E-T001-0002"],
+        timestamp="2026-07-30T19:03:00Z",
+    )
+    evidence_path = root / "audit/evidence/T001/E-T001-0002.yaml"
+    evidence = yaml.safe_load(evidence_path.read_text(encoding="utf-8"))
+    evidence["notes"] = "Changed after preview"
+    evidence_path.write_text(yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(TransactionError, match="Transaction input changed"):
+        apply_plan(plan)
+
+    claim = read_yaml(root / "claims/claims.yaml")["claims"][0]
+    assert claim["verification_statuses"] == ["UNCHECKED"]
+
+
+def test_default_source_revision_rejects_dirty_worktree(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _register(root)
+    _commit_fixture(root)
+    (root / "docs/proofs/T001.md").write_text("# changed\n", encoding="utf-8")
+
+    with pytest.raises(TransactionError, match="Working tree is dirty"):
+        plan_evidence_add(
+            root,
+            claim_id="T001",
+            evidence_class="REVIEW_INTERNAL",
+            created_by_type="human",
+            created_by_id="github:tester",
+            establishes=["Internal review completed"],
+            does_not_establish=["External review"],
+            source_revision=None,
+            timestamp="2026-07-30T19:02:00Z",
+        )
+
+
+def test_default_source_revision_rechecks_head_before_apply(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _register(root)
+    _commit_fixture(root)
+    plan = plan_evidence_add(
+        root,
+        claim_id="T001",
+        evidence_class="REVIEW_INTERNAL",
+        created_by_type="human",
+        created_by_id="github:tester",
+        establishes=["Internal review completed"],
+        does_not_establish=["External review"],
+        source_revision=None,
+        timestamp="2026-07-30T19:02:00Z",
+    )
+    _git(root, "commit", "--allow-empty", "-m", "move head")
+
+    with pytest.raises(TransactionError, match="Git HEAD changed"):
+        apply_plan(plan)
+
+    assert not (root / "audit/evidence/T001/E-T001-0002.yaml").exists()
+
+
+def test_proposal_rejects_source_changed_after_preview_and_releases_lock(tmp_path: Path) -> None:
+    from cruthunas.transaction_plan import _lock_path
+
+    root = _project(tmp_path)
+    plan = plan_claim_proposal(
+        root,
+        claim_id="T001",
+        kind="THEOREM",
+        statement="For every n in {1}, n = 1.",
+        source_document="docs/proofs/T001.md",
+        limitations=["Fixture only"],
+        proposed_by="github:tester",
+        timestamp="2026-07-30T19:00:00Z",
+    )
+    (root / "docs/proofs/T001.md").write_text("# changed after preview\n", encoding="utf-8")
+
+    with pytest.raises(TransactionError, match="Transaction input changed"):
+        apply_plan(plan)
+
+    assert not (root / "audit/proposals/T001.yaml").exists()
+    assert not _lock_path(root).exists()

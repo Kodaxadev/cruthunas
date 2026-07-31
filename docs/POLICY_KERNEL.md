@@ -31,12 +31,15 @@ The command layer enforces these transaction boundaries:
 - a transition may change one or more claim axes, creates one typed transition record per axis, and may create a new evidence record in the same transaction;
 - the complete prospective repository is copied to an isolated validation tree and must pass the full policy graph before any canonical file is replaced;
 - every changed target is checked for concurrent modification before commit;
-- in-process write or post-write validation failures restore the original files;
+- every proposal, evidence record, artifact, and environment file consumed by a plan is content-fingerprinted and rechecked before commit;
+- an automatically detected `source_revision` requires a clean Git working tree, pins the current `HEAD`, and rechecks that `HEAD` before commit;
+- an explicit `--source-revision` is treated as a caller attestation for external or non-Git source state;
+- in-process write or post-write validation failures restore the original files, and incomplete rollback is reported as an internal failure rather than hidden;
 - mutating commands preview by default and require confirmation unless `--yes` is explicitly supplied;
 - `--dry-run` validates and previews without writing;
 - machine-readable output is available with `--json` in `--dry-run` or `--yes` mode.
 
-The filesystem transaction is validated-before-write and rollback-protected within the running process. It does not claim crash consistency across operating-system failure or sudden power loss.
+The filesystem transaction is validated-before-write and rollback-protected within the running process. Read-input fingerprints close the preview-to-apply race for files that determine generated records. The implementation does not claim crash consistency across operating-system failure or sudden power loss.
 
 ## Skill scope
 

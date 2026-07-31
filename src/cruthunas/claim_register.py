@@ -84,6 +84,7 @@ def plan_claim_proposal(
         "claim.propose",
         [(relative, _yaml_bytes(proposal))],
         {"claim_id": claim_id, "proposal": relative},
+        reads=[source_relative],
     )
 
 
@@ -123,6 +124,7 @@ def plan_claim_registration(
         raise TransactionError("A human requester cannot be the sole human approver of claim registration")
     created_at = _timestamp(timestamp)
     revision = _source_revision(root, source_revision)
+    expected_git_head = revision if source_revision is None else None
     evidence_id = _next_evidence_id(root, claim_id)
     evidence = _build_evidence(
         root,
@@ -202,4 +204,6 @@ def plan_claim_registration(
             "evidence_ids": [evidence_id],
             "transition_paths": [transition_path],
         },
+        reads=[proposal_relative],
+        expected_git_head=expected_git_head,
     )

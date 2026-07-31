@@ -78,7 +78,6 @@ def _register(root: Path) -> None:
     )
 
 
-
 def test_cli_dry_run_writes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     root = _project(tmp_path)
     code = main(
@@ -157,7 +156,7 @@ def test_registration_rejects_same_human_requester_and_approver(tmp_path: Path) 
             timestamp="2026-07-30T19:00:00Z",
         )
     )
-    with pytest.raises(TransactionError, match="sole human approver"):
+    with pytest.raises(TransactionError, match="sole human registration approver"):
         plan_claim_registration(
             root,
             proposal_path="audit/proposals/T001.yaml",
@@ -169,5 +168,3 @@ def test_registration_rejects_same_human_requester_and_approver(tmp_path: Path) 
             source_revision="a" * 40,
             timestamp="2026-07-30T19:01:00Z",
         )
-
-

@@ -55,6 +55,7 @@ def _commit_fixture(root: Path, message: str = "fixture") -> str:
     _git(root, "commit", "-m", message)
     return _git(root, "rev-parse", "HEAD")
 
+
 def test_proposal_uses_exact_ledger_snapshot_during_planning(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -202,6 +203,21 @@ def test_artifact_change_during_planning_invalidates_prospective_transaction(
     artifact = root / "certificates/T001/result.json"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text('{"value": 1}\n', encoding="utf-8")
+    environment = root / "experiments/T001/environment.json"
+    _write(
+        environment,
+        '{"interpreter":"CPython 3.13","dependencies":["fixture"],'
+        '"operating_system":"fixture","locale":"C.UTF-8","timezone":"UTC",'
+        '"environment_variables":{"PYTHONHASHSEED":"0"},"random_seeds":[0]}\n',
+    )
+    details = root / "experiments/T001/details.json"
+    _write(
+        details,
+        '{"algorithm":"fixture","bounds":"n = 1","arithmetic":"exact integers",'
+        '"inputs":["n = 1"],"input_hashes":["fixture-input"],'
+        '"outputs":["value = 1"],"output_hashes":["fixture-output"],'
+        '"runtime":"under one second","resources":"single process"}\n',
+    )
     original_link = claim_mutate._link_evidence
 
     def mutate_artifact(claim: dict, evidence: dict) -> None:
@@ -220,6 +236,9 @@ def test_artifact_change_during_planning_invalidates_prospective_transaction(
             does_not_establish=["Anything outside the fixture"],
             source_revision="a" * 40,
             artifacts=["certificates/T001/result.json"],
+            commands=["python verify.py"],
+            environment_json="experiments/T001/environment.json",
+            details_json="experiments/T001/details.json",
             timestamp="2026-07-30T19:02:00Z",
         )
 

@@ -86,6 +86,34 @@ def _add_review(root: Path, timestamp: str) -> str:
     return result["evidence_ids"][0]
 
 
+def _write_linked_review_without_advancing_ledger(root: Path, timestamp: str) -> str:
+    evidence_id = "E-T001-0002"
+    record = {
+        "schema_version": 1,
+        "id": evidence_id,
+        "claim_id": "T001",
+        "class": "REVIEW_INTERNAL",
+        "created_at": timestamp,
+        "created_by": {"type": "agent", "id": "fixture-reviewer"},
+        "establishes": ["Internal review completed"],
+        "does_not_establish": ["External review"],
+        "artifacts": [],
+        "commands": [],
+        "environment": None,
+        "details": None,
+        "source_revision": "a" * 40,
+        "notes": None,
+    }
+    _write(
+        root / f"audit/evidence/T001/{evidence_id}.yaml",
+        yaml.safe_dump(record, sort_keys=False),
+    )
+    ledger = read_yaml(root / "claims/claims.yaml")
+    ledger["claims"][0]["evidence"].append(evidence_id)
+    _write(root / "claims/claims.yaml", yaml.safe_dump(ledger, sort_keys=False))
+    return evidence_id
+
+
 def _promote_ledger(root: Path, updated_at: str) -> None:
     ledger = read_yaml(root / "claims/claims.yaml")
     ledger["claims"][0]["gate"] = 5
@@ -136,7 +164,7 @@ def test_transition_offsets_are_sorted_by_absolute_time(tmp_path: Path) -> None:
 def test_duplicate_axis_transition_timestamps_are_rejected(tmp_path: Path) -> None:
     root = _project(tmp_path)
     _register(root)
-    review_id = _add_review(root, "2026-07-30T19:01:00Z")
+    review_id = _add_review(root, "2026-07-30T19:02:00Z")
     _promote_ledger(root, "2026-07-30T19:01:00Z")
     _write_gate_transition(
         root,
@@ -154,7 +182,10 @@ def test_duplicate_axis_transition_timestamps_are_rejected(tmp_path: Path) -> No
 def test_transition_cannot_cite_future_evidence(tmp_path: Path) -> None:
     root = _project(tmp_path)
     _register(root)
-    review_id = _add_review(root, "2026-07-30T19:04:00Z")
+    review_id = _write_linked_review_without_advancing_ledger(
+        root,
+        "2026-07-30T19:04:00Z",
+    )
 
     with pytest.raises(TransactionError, match="created after the transition"):
         plan_claim_transition(

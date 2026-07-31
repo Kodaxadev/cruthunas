@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import yaml
@@ -132,19 +133,63 @@ def test_valid_computational_claim(tmp_path: Path) -> None:
         verification_statuses=["INDEPENDENT_REPRODUCTION"],
         evidence=[registration_id, reproduction_id],
         computational_support=[reproduction_id],
+        updated_at="2026-07-30T19:03:00Z",
     )
     root = _project(tmp_path, [claim])
-    for evidence_id, evidence_class in (
-        (registration_id, "CLAIM_REGISTRATION"),
-        (reproduction_id, "REPRODUCTION"),
+
+    artifact_text = '{"ok": true}\n'
+    artifact_path = "certificates/T001/reproduction.json"
+    _write(root / artifact_path, artifact_text)
+
+    registration = _evidence(registration_id, "CLAIM_REGISTRATION")
+    registration["created_at"] = "2026-07-30T19:01:00Z"
+
+    reproduction = _evidence(reproduction_id, "REPRODUCTION")
+    reproduction.update(
+        {
+            "created_at": "2026-07-30T19:02:00Z",
+            "created_by": {
+                "type": "human",
+                "id": "github:independent-tester",
+            },
+            "artifacts": [
+                {
+                    "path": artifact_path,
+                    "sha256": hashlib.sha256(artifact_text.encode("utf-8")).hexdigest(),
+                }
+            ],
+            "commands": ["python independent/reproduce.py"],
+            "environment": {
+                "interpreter": "CPython 3.13",
+                "dependencies": ["PyYAML 6.0.3"],
+                "operating_system": "fixture",
+                "locale": "C.UTF-8",
+                "timezone": "UTC",
+                "environment_variables": {"PYTHONHASHSEED": "0"},
+                "random_seeds": [0],
+            },
+            "details": {
+                "independent": True,
+                "relationship_to_originator": "No collaboration",
+                "inputs_received": ["Registered claim statement"],
+                "saw_original_work": False,
+                "implementation_boundary": "Independent fixture implementation",
+                "dependency_boundary": "No project implementation imports",
+                "result": "Reproduced",
+                "disagreements": ["None"],
+            },
+        }
+    )
+
+    for evidence_id, record in (
+        (registration_id, registration),
+        (reproduction_id, reproduction),
     ):
         _write(
             root / f"audit/evidence/T001/{evidence_id}.yaml",
-            yaml.safe_dump(
-                _evidence(evidence_id, evidence_class),
-                sort_keys=False,
-            ),
+            yaml.safe_dump(record, sort_keys=False),
         )
+
     transitions = (
         (
             "20260730T190100Z-gate-4.yaml",

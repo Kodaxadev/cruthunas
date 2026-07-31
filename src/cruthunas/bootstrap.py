@@ -97,6 +97,14 @@ def _release_attestation(
 def _conflicting_governed_paths(root: Path, destinations: list[str]) -> list[str]:
     conflicts = [relative for relative in destinations if (root / relative).exists()]
     for relative in (
+        ".cruthunas/adapters.json",
+        "audit/evidence-manifest.yaml",
+        "audit/evidence-manifest.yml",
+        "audit/evidence-manifest.md",
+    ):
+        if (root / relative).exists():
+            conflicts.append(relative)
+    for relative in (
         "audit/proposals",
         "audit/evidence",
         "audit/transitions",

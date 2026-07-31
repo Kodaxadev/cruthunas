@@ -312,21 +312,38 @@ def _identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
             if path.suffix.lower() not in TEXT_SUFFIXES:
                 continue
             relative = str(path.relative_to(root)).replace("\\", "/")
-            lowered_path = relative.casefold()
-            if not (
-                lowered_path.startswith(("audit/", "independent/"))
-                or any(token in lowered_path for token in ("review", "reproduc", "evidence"))
-            ):
-                continue
             content = _text(path)
             if content is None:
                 continue
             matched: set[str] = set()
+            path_is_evidence_context = (
+                relative.casefold().startswith(("audit/", "independent/"))
+                or any(
+                    token in relative.casefold()
+                    for token in ("review", "reproduc", "evidence")
+                )
+            )
             for line in content.splitlines():
                 lowered = line.casefold()
-                if any(negation in lowered for negation in ("does not", "do not", "not establish", "no external", "no independent")):
+                if any(
+                    boundary in lowered
+                    for boundary in (
+                        "does not",
+                        "do not",
+                        "not establish",
+                        "no external",
+                        "no independent",
+                        "pending",
+                        "awaiting",
+                        "required",
+                        "requires",
+                        "needed",
+                    )
+                ):
                     continue
-                matched.update(phrase for phrase in phrases if phrase in lowered)
+                line_matches = {phrase for phrase in phrases if phrase in lowered}
+                if line_matches and (path_is_evidence_context or LEGACY_TOKEN.search(line)):
+                    matched.update(line_matches)
             if matched:
                 gaps.append(
                     AdoptionGap(

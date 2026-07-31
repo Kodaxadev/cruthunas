@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .claim_ids import claim_reference_index
 from .models import Finding, load_and_validate, path_exists
 
 
@@ -39,99 +40,38 @@ def _nonblank(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def check_claims(
-    root: Path,
-) -> tuple[dict[str, dict[str, Any]], list[Finding]]:
-    ledger, findings = load_and_validate(
-        root / "claims/claims.yaml",
-        root / "claims/schema.json",
-        root,
-        missing_code="ledger.missing",
-    )
+def check_claims(root: Path) -> tuple[dict[str, dict[str, Any]], list[Finding]]:
+    ledger, findings = load_and_validate(root / "claims/claims.yaml", root / "claims/schema.json", root, missing_code="ledger.missing")
     claims: dict[str, dict[str, Any]] = {}
     if not isinstance(ledger, dict) or not isinstance(ledger.get("claims"), list):
         return claims, findings
-
-    known_ids = {
-        item.get("id")
-        for item in ledger["claims"]
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
-    }
+    known_ids = {item.get("id") for item in ledger["claims"] if isinstance(item, dict) and isinstance(item.get("id"), str)}
     for claim in ledger["claims"]:
         if not isinstance(claim, dict) or not isinstance(claim.get("id"), str):
             continue
         claim_id = claim["id"]
         if claim_id in claims:
-            findings.append(
-                Finding(
-                    "claim.duplicate_id",
-                    f"Duplicate claim ID {claim_id}",
-                    "claims/claims.yaml",
-                )
-            )
+            findings.append(Finding("claim.duplicate_id", f"Duplicate claim ID {claim_id}", "claims/claims.yaml"))
         else:
             claims[claim_id] = claim
         if not _nonblank(claim.get("statement")):
-            findings.append(
-                Finding(
-                    "claim.blank_statement",
-                    f"Claim {claim_id} statement must contain non-whitespace text",
-                    "claims/claims.yaml",
-                )
-            )
+            findings.append(Finding("claim.blank_statement", f"Claim {claim_id} statement must contain non-whitespace text", "claims/claims.yaml"))
         limitations = claim.get("limitations")
-        if not isinstance(limitations, list) or not limitations or not all(
-            _nonblank(item) for item in limitations
-        ):
-            findings.append(
-                Finding(
-                    "claim.blank_limitation",
-                    f"Claim {claim_id} requires at least one non-whitespace limitation",
-                    "claims/claims.yaml",
-                )
-            )
+        if not isinstance(limitations, list) or not limitations or not all(_nonblank(item) for item in limitations):
+            findings.append(Finding("claim.blank_limitation", f"Claim {claim_id} requires at least one non-whitespace limitation", "claims/claims.yaml"))
         if claim.get("gate", 0) < 4:
-            findings.append(
-                Finding(
-                    "claim.invalid_gate",
-                    f"Registered claim {claim_id} must be at Gate 4 or later",
-                    "claims/claims.yaml",
-                )
-            )
+            findings.append(Finding("claim.invalid_gate", f"Registered claim {claim_id} must be at Gate 4 or later", "claims/claims.yaml"))
         if claim_id in claim.get("dependencies", []):
-            findings.append(
-                Finding(
-                    "claim.self_dependency",
-                    f"Claim {claim_id} depends on itself",
-                    "claims/claims.yaml",
-                )
-            )
+            findings.append(Finding("claim.self_dependency", f"Claim {claim_id} depends on itself", "claims/claims.yaml"))
         for dependency in claim.get("dependencies", []):
             if dependency not in known_ids:
-                findings.append(
-                    Finding(
-                        "claim.dangling_dependency",
-                        f"Claim {claim_id} depends on unknown claim {dependency}",
-                        "claims/claims.yaml",
-                    )
-                )
+                findings.append(Finding("claim.dangling_dependency", f"Claim {claim_id} depends on unknown canonical claim {dependency}", "claims/claims.yaml"))
         source = claim.get("source_document")
         if isinstance(source, str) and not path_exists(root, source):
-            findings.append(
-                Finding(
-                    "claim.missing_source",
-                    f"Claim {claim_id} source_document does not exist: {source}",
-                    "claims/claims.yaml",
-                )
-            )
-
+            findings.append(Finding("claim.missing_source", f"Claim {claim_id} source_document does not exist: {source}", "claims/claims.yaml"))
+    _canonical, _aliases, alias_errors = claim_reference_index(item for item in ledger["claims"] if isinstance(item, dict))
+    findings.extend(Finding("claim.alias_collision", message, "claims/claims.yaml") for message in alias_errors)
     found_cycle = _cycle(claims)
     if found_cycle:
-        findings.append(
-            Finding(
-                "claim.dependency_cycle",
-                "Dependency cycle: " + " -> ".join(found_cycle),
-                "claims/claims.yaml",
-            )
-        )
+        findings.append(Finding("claim.dependency_cycle", "Dependency cycle: " + " -> ".join(found_cycle), "claims/claims.yaml"))
     return claims, findings

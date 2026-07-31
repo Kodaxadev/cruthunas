@@ -40,6 +40,10 @@ def _add_evidence_payload(parser: argparse.ArgumentParser, *, required: bool) ->
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--command", action="append", default=[], dest="record_commands")
     parser.add_argument("--environment-json")
+    parser.add_argument(
+        "--details-json",
+        help="JSON object containing class-specific evidence details required by policy",
+    )
     parser.add_argument("--notes")
     parser.add_argument("--reviewer-type", choices=ACTOR_TYPES)
     parser.add_argument("--reviewer-id")

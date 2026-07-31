@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from .evidence_policy import evidence_contract_errors
 from .models import yaml_files
 from .transaction_types import (
     EVIDENCE_CLASSES,
@@ -84,20 +85,21 @@ def _artifact_records(
     return records, snapshots
 
 
-def _environment(
+def _json_object(
     root: Path,
-    environment_json: str | None,
+    json_path: str | None,
+    label: str,
 ) -> tuple[dict[str, Any] | None, list[FileSnapshot]]:
-    if environment_json is None:
+    if json_path is None:
         return None, []
-    snapshot = _capture_file(root, environment_json, required=True)
+    snapshot = _capture_file(root, json_path, required=True)
     assert snapshot.content is not None
     try:
         value = json.loads(snapshot.content.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise TransactionError(f"Could not read environment JSON: {exc}") from exc
+        raise TransactionError(f"Could not read {label} JSON: {exc}") from exc
     if not isinstance(value, dict):
-        raise TransactionError("Environment JSON must contain an object")
+        raise TransactionError(f"{label} JSON must contain an object")
     return value, [snapshot]
 
 
@@ -116,24 +118,30 @@ def _build_evidence(
     artifacts: list[str],
     commands: list[str],
     environment_json: str | None,
+    details_json: str | None,
     notes: str | None,
     reviewer_type: str | None,
     reviewer_id: str | None,
 ) -> tuple[dict[str, Any], tuple[FileSnapshot, ...]]:
     if evidence_class not in EVIDENCE_CLASSES:
         raise TransactionError(f"Unknown evidence class: {evidence_class}", exit_code=2)
-    if not establishes or not all(item.strip() for item in establishes):
+    if not establishes or not all(isinstance(item, str) and item.strip() for item in establishes):
         raise TransactionError(
             "Evidence requires at least one non-empty establishes statement",
             exit_code=2,
         )
-    if not does_not_establish or not all(item.strip() for item in does_not_establish):
+    if not does_not_establish or not all(
+        isinstance(item, str) and item.strip() for item in does_not_establish
+    ):
         raise TransactionError(
             "Evidence requires at least one non-empty does-not-establish statement",
             exit_code=2,
         )
+    if any(not isinstance(item, str) or not item.strip() for item in commands):
+        raise TransactionError("Evidence commands must not be empty", exit_code=2)
     artifact_records, artifact_snapshots = _artifact_records(root, artifacts)
-    environment, environment_snapshots = _environment(root, environment_json)
+    environment, environment_snapshots = _json_object(root, environment_json, "Environment")
+    details, details_snapshots = _json_object(root, details_json, "Details")
     record: dict[str, Any] = {
         "schema_version": 1,
         "id": evidence_id,
@@ -146,8 +154,9 @@ def _build_evidence(
         "artifacts": artifact_records,
         "commands": [item.strip() for item in commands],
         "environment": environment,
+        "details": details,
         "source_revision": source_revision,
-        "notes": notes,
+        "notes": notes.strip() if isinstance(notes, str) and notes.strip() else None,
     }
     if evidence_class == "REVIEW_EXTERNAL":
         if reviewer_type not in {"human", "venue"} or not reviewer_id:
@@ -160,8 +169,13 @@ def _build_evidence(
         if reviewer_type is None or reviewer_id is None:
             raise TransactionError("Reviewer type and ID must be supplied together", exit_code=2)
         record["reviewer"] = _actor(reviewer_type, reviewer_id)
+    contract_errors = evidence_contract_errors(record)
+    if contract_errors:
+        raise TransactionError("; ".join(contract_errors), exit_code=2)
     _validate_instance(record, root / "schemas/evidence-v1.json", "evidence record")
-    return record, tuple([*artifact_snapshots, *environment_snapshots])
+    return record, tuple(
+        [*artifact_snapshots, *environment_snapshots, *details_snapshots]
+    )
 
 
 def _link_evidence(claim: dict[str, Any], evidence: dict[str, Any]) -> None:

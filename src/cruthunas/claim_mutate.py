@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .evidence_policy import normalized_identity
 from .transaction_evidence import (
     _build_evidence,
     _evidence_records_with_snapshots,
@@ -24,9 +25,13 @@ from .transaction_types import (
     _capture_file,
     _claim_map,
     _filename_timestamp,
+    _identity,
+    _identity_key,
     _ledger_bytes,
     _load_ledger_snapshot,
+    _nonempty_text,
     _parsed_timestamp,
+    _require_later,
     _source_revision,
     _timestamp,
     _transition_history,
@@ -48,6 +53,7 @@ def plan_evidence_add(
     artifacts: list[str] | None = None,
     commands: list[str] | None = None,
     environment_json: str | None = None,
+    details_json: str | None = None,
     notes: str | None = None,
     reviewer_type: str | None = None,
     reviewer_id: str | None = None,
@@ -69,7 +75,9 @@ def plan_evidence_add(
     evidence_target = _capture_file(root, path)
     if selected_id in records or evidence_target.content is not None:
         raise TransactionError(f"Evidence ID already exists: {selected_id}")
+    claim = claims[claim_id]
     created_at = _timestamp(timestamp)
+    _require_later(created_at, claim.get("updated_at"), f"Evidence {selected_id}")
     revision = _source_revision(root, source_revision)
     expected_git_head = revision if source_revision is None else None
     evidence, evidence_inputs = _build_evidence(
@@ -86,11 +94,11 @@ def plan_evidence_add(
         artifacts=artifacts or [],
         commands=commands or [],
         environment_json=environment_json,
+        details_json=details_json,
         notes=notes,
         reviewer_type=reviewer_type,
         reviewer_id=reviewer_id,
     )
-    claim = claims[claim_id]
     _link_evidence(claim, evidence)
     claim["updated_at"] = created_at
     return _plan(
@@ -150,6 +158,7 @@ def plan_claim_transition(
     artifacts: list[str] | None = None,
     commands: list[str] | None = None,
     environment_json: str | None = None,
+    details_json: str | None = None,
     notes: str | None = None,
     reviewer_type: str | None = None,
     reviewer_id: str | None = None,
@@ -159,15 +168,20 @@ def plan_claim_transition(
     claims = _claim_map(ledger)
     if claim_id not in claims:
         raise TransactionError(f"Unknown claim: {claim_id}")
-    if approved_by_type == "human" and approved_by_id == requested_by:
+    requester = _identity(requested_by, "Transition requester")
+    reason_text = _nonempty_text(reason, "Transition reason")
+    approver = _actor(approved_by_type, approved_by_id, approver=True)
+    if approved_by_type == "human" and _identity_key(approver["id"]) == _identity_key(requester):
         raise TransactionError(
             "A human requester cannot be the sole human approver of the same transition"
         )
     claim = claims[claim_id]
     created_at = _timestamp(timestamp)
+    _require_later(created_at, claim.get("updated_at"), f"Transition for {claim_id}")
     evidence_records, evidence_snapshots = _evidence_records_with_snapshots(root)
     selected_evidence = list(dict.fromkeys(evidence_ids or []))
     selected_evidence_snapshots: list[FileSnapshot] = []
+    selected_records: list[dict[str, Any]] = []
     for evidence_id in selected_evidence:
         record = evidence_records.get(evidence_id)
         if record is None:
@@ -176,6 +190,7 @@ def plan_claim_transition(
             raise TransactionError(
                 f"Transition evidence belongs to another claim: {evidence_id}"
             )
+        selected_records.append(record)
         selected_evidence_snapshots.append(evidence_snapshots[evidence_id])
 
     new_evidence: dict[str, Any] | None = None
@@ -209,11 +224,13 @@ def plan_claim_transition(
             artifacts=artifacts or [],
             commands=commands or [],
             environment_json=environment_json,
+            details_json=details_json,
             notes=notes,
             reviewer_type=reviewer_type,
             reviewer_id=reviewer_id,
         )
         selected_evidence.append(new_id)
+        selected_records.append(new_evidence)
         new_evidence_path = f"audit/evidence/{claim_id}/{new_id}.yaml"
         new_evidence_target = _capture_file(root, new_evidence_path)
         if new_evidence_target.content is not None:
@@ -228,6 +245,19 @@ def plan_claim_transition(
             else evidence_records[evidence_id]
         )
         _link_evidence(claim, record)
+
+    if approved_by_type == "human":
+        approver_key = _identity_key(approver["id"])
+        contributor_keys = {
+            normalized_identity(record.get("created_by", {}).get("id"))
+            for record in selected_records
+            if isinstance(record.get("created_by"), dict)
+            and record.get("created_by", {}).get("type") == "human"
+        }
+        if approver_key in contributor_keys:
+            raise TransactionError(
+                "A human evidence creator cannot be the sole human approver of a transition relying on that evidence"
+            )
 
     changes: list[tuple[str, Any, Any]] = []
     if gate is not None:
@@ -280,7 +310,6 @@ def plan_claim_transition(
                 exit_code=2,
             )
     claim["updated_at"] = created_at
-    approver = _actor(approved_by_type, approved_by_id, approver=True)
     transition_paths: list[str] = []
     writes: list[tuple[str, bytes]] = [
         ("claims/claims.yaml", _ledger_bytes(root, ledger, ledger_snapshot))
@@ -303,10 +332,10 @@ def plan_claim_transition(
             "axis": axis,
             "from": before,
             "to": after,
-            "requested_by": requested_by,
+            "requested_by": requester,
             "approved_by": approver,
             "evidence": selected_evidence,
-            "reason": reason,
+            "reason": reason_text,
             "created_at": created_at,
         }
         suffix = f"{axis}-{str(before).lower()}-to-{str(after).lower()}"

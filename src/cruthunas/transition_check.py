@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .evidence_policy import normalized_identity
 from .models import Finding, read_yaml, yaml_files
 from .transition_policy import transition_support_errors
 
@@ -49,8 +50,7 @@ def _transition_sort_key(item: tuple[Path, dict[str, Any]]) -> tuple[datetime, s
 def _human_approver(record: dict[str, Any]) -> str | None:
     approved = record.get("approved_by")
     if isinstance(approved, dict) and approved.get("type") == "human":
-        value = approved.get("id")
-        return value if isinstance(value, str) else None
+        return normalized_identity(approved.get("id"))
     return None
 
 
@@ -80,11 +80,12 @@ def check_transition_semantics(
             continue
 
         approver = _human_approver(record)
-        if approver is not None and approver == record.get("requested_by"):
+        requester = normalized_identity(record.get("requested_by"))
+        if approver is not None and approver == requester:
             findings.append(
                 Finding(
                     "transition.self_approval",
-                    f"Human requester {approver} cannot be the sole human approver",
+                    f"Human requester {record.get('requested_by')} cannot be the sole human approver",
                     relative,
                 )
             )
@@ -118,6 +119,20 @@ def check_transition_semantics(
                         Finding(
                             "transition.future_evidence",
                             f"Transition evidence {evidence_id} was created after the transition",
+                            relative,
+                        )
+                    )
+                created_by = evidence_record.get("created_by")
+                creator = (
+                    normalized_identity(created_by.get("id"))
+                    if isinstance(created_by, dict) and created_by.get("type") == "human"
+                    else None
+                )
+                if approver is not None and creator == approver:
+                    findings.append(
+                        Finding(
+                            "transition.evidence_creator_self_approval",
+                            f"Human evidence creator {created_by.get('id')} cannot solely approve a transition relying on that evidence",
                             relative,
                         )
                     )
@@ -248,10 +263,11 @@ def check_transition_semantics(
             approver = _human_approver(first)
             if approver is not None:
                 originators = {
-                    record.get("created_by", {}).get("id")
+                    normalized_identity(record.get("created_by", {}).get("id"))
                     for record in registration_records
                     if isinstance(record.get("created_by"), dict)
                 }
+                originators.add(normalized_identity(first.get("requested_by")))
                 proposal_path = root / "audit/proposals" / f"{claim_id}.yaml"
                 if proposal_path.is_file():
                     try:
@@ -259,12 +275,12 @@ def check_transition_semantics(
                     except Exception:
                         proposal = None
                     if isinstance(proposal, dict):
-                        originators.add(proposal.get("proposed_by"))
+                        originators.add(normalized_identity(proposal.get("proposed_by")))
                 if approver in originators:
                     findings.append(
                         Finding(
                             "transition.registration_self_approval",
-                            f"Human claim originator or requester {approver} cannot be the sole human registration approver",
+                            f"Human claim originator or requester cannot be the sole human registration approver",
                             relative,
                         )
                     )

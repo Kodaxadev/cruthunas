@@ -120,6 +120,23 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _nonempty_text(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise TransactionError(f"{label} must not be empty", exit_code=2)
+    return value.strip()
+
+
+def _identity(value: Any, label: str = "Actor ID") -> str:
+    return _nonempty_text(value, label)
+
+
+def _identity_key(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized.casefold() if normalized else None
+
+
 def _capture_file(root: Path, value: str | Path, *, required: bool = False) -> FileSnapshot:
     relative = _relative_text(root, value)
     target = _resolve_relative(root, relative)
@@ -204,7 +221,21 @@ def _filename_timestamp(value: str) -> str:
 
 
 def _parsed_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _require_later(candidate: str, previous: Any, label: str) -> None:
+    if not isinstance(previous, str):
+        raise TransactionError(f"{label} has no valid prior timestamp", exit_code=2)
+    try:
+        is_later = _parsed_timestamp(candidate) > _parsed_timestamp(previous)
+    except ValueError as exc:
+        raise TransactionError(f"{label} contains an invalid timestamp", exit_code=2) from exc
+    if not is_later:
+        raise TransactionError(f"{label} timestamp must be later than {previous}", exit_code=2)
 
 
 def _transition_history(
@@ -295,9 +326,7 @@ def _actor(actor_type: str, actor_id: str, *, approver: bool = False) -> dict[st
             f"Invalid {'approver' if approver else 'actor'} type: {actor_type}",
             exit_code=2,
         )
-    if not actor_id.strip():
-        raise TransactionError("Actor ID must not be empty", exit_code=2)
-    return {"type": actor_type, "id": actor_id.strip()}
+    return {"type": actor_type, "id": _identity(actor_id)}
 
 
 def _load_ledger_snapshot(root: Path) -> tuple[dict[str, Any], FileSnapshot]:

@@ -3,24 +3,116 @@
   "$id": "https://kodaxadev.github.io/cruthunas/schemas/evidence-v1.json",
   "title": "Cruthunas Evidence Record",
   "type": "object",
-  "required": ["schema_version", "id", "claim_id", "class", "created_at", "created_by", "establishes", "does_not_establish", "source_revision"],
+  "required": [
+    "schema_version",
+    "id",
+    "claim_id",
+    "class",
+    "created_at",
+    "created_by",
+    "establishes",
+    "does_not_establish",
+    "source_revision"
+  ],
   "properties": {
     "schema_version": {"const": 1},
     "id": {"type": "string", "pattern": "^E-[A-Z][0-9]{3,}-[0-9]{4,}$"},
     "claim_id": {"type": "string", "pattern": "^[A-Z][0-9]{3,}$"},
-    "class": {"enum": ["ATTRIBUTION", "CHARTER", "BASELINE", "CLAIM_REGISTRATION", "DERIVATION", "PROOF", "COMPUTATION", "REPRODUCTION", "FORMALIZATION", "REVIEW_INTERNAL", "REVIEW_EXTERNAL", "MANUSCRIPT_AUDIT", "GATE_DISPOSITION", "RELEASE", "CORRECTION", "REFUTATION"]},
+    "class": {
+      "enum": [
+        "ATTRIBUTION",
+        "CHARTER",
+        "BASELINE",
+        "CLAIM_REGISTRATION",
+        "DERIVATION",
+        "PROOF",
+        "COMPUTATION",
+        "REPRODUCTION",
+        "FORMALIZATION",
+        "REVIEW_INTERNAL",
+        "REVIEW_EXTERNAL",
+        "MANUSCRIPT_AUDIT",
+        "GATE_DISPOSITION",
+        "RELEASE",
+        "CORRECTION",
+        "REFUTATION"
+      ]
+    },
     "created_at": {"type": "string", "format": "date-time"},
     "created_by": {"$ref": "#/$defs/actor"},
     "reviewer": {"$ref": "#/$defs/actor"},
-    "establishes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-    "does_not_establish": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-    "artifacts": {"type": "array", "items": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "additionalProperties": false}, "default": []},
-    "commands": {"type": "array", "items": {"type": "string", "minLength": 1}, "default": []},
+    "establishes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/nonBlank"}
+    },
+    "does_not_establish": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/nonBlank"}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"$ref": "#/$defs/nonBlank"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      },
+      "default": []
+    },
+    "commands": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nonBlank"},
+      "default": []
+    },
     "environment": {"type": ["object", "null"], "additionalProperties": true},
+    "details": {"type": ["object", "null"], "additionalProperties": true},
     "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "notes": {"type": ["string", "null"]}
   },
-  "allOf": [{"if": {"properties": {"class": {"const": "REVIEW_EXTERNAL"}}, "required": ["class"]}, "then": {"required": ["reviewer"]}}],
-  "$defs": {"actor": {"type": "object", "required": ["type", "id"], "properties": {"type": {"enum": ["human", "agent", "policy", "venue"]}, "id": {"type": "string", "minLength": 1}}, "additionalProperties": false}},
+  "allOf": [
+    {
+      "if": {
+        "properties": {"class": {"const": "REVIEW_EXTERNAL"}},
+        "required": ["class"]
+      },
+      "then": {"required": ["reviewer", "details"]}
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "enum": ["COMPUTATION", "REPRODUCTION", "FORMALIZATION", "RELEASE"]
+          }
+        },
+        "required": ["class"]
+      },
+      "then": {
+        "required": ["artifacts", "commands", "environment", "details"],
+        "properties": {
+          "artifacts": {"minItems": 1},
+          "commands": {"minItems": 1},
+          "environment": {"type": "object", "minProperties": 1},
+          "details": {"type": "object", "minProperties": 1}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nonBlank": {"type": "string", "pattern": ".*\\S.*"},
+    "actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {"enum": ["human", "agent", "policy", "venue"]},
+        "id": {"$ref": "#/$defs/nonBlank"}
+      },
+      "additionalProperties": false
+    }
+  },
   "additionalProperties": false
 }

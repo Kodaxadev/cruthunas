@@ -19,15 +19,31 @@ from .transaction_types import (
     _capture_file,
     _claim_map,
     _filename_timestamp,
+    _identity,
+    _identity_key,
     _ledger_bytes,
     _load_ledger_snapshot,
+    _nonempty_text,
     _relative_text,
+    _require_later,
     _source_revision,
     _timestamp,
     _validate_instance,
     _yaml_bytes,
     _yaml_from_snapshot,
 )
+
+
+def _optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _text_list(values: list[str], label: str) -> list[str]:
+    normalized = [_nonempty_text(item, label) for item in values]
+    return list(dict.fromkeys(normalized))
 
 
 def plan_claim_proposal(
@@ -70,19 +86,22 @@ def plan_claim_proposal(
         "id": claim_id,
         "kind": kind,
     }
-    if title:
-        proposal["title"] = title
+    normalized_title = _optional_text(title)
+    if normalized_title:
+        proposal["title"] = normalized_title
     proposal.update(
         {
-            "statement": statement,
-            "scope": scope,
+            "statement": _nonempty_text(statement, "Claim statement"),
+            "scope": _optional_text(scope),
             "dependencies": dependency_list,
             "source_document": source_relative,
-            "proof_location": proof_location,
-            "formal_declarations": list(dict.fromkeys(formal_declarations or [])),
-            "limitations": limitations,
+            "proof_location": _optional_text(proof_location),
+            "formal_declarations": _text_list(
+                formal_declarations or [], "Formal declaration"
+            ),
+            "limitations": _text_list(limitations, "Claim limitation"),
             "proposed_at": proposed_at,
-            "proposed_by": proposed_by,
+            "proposed_by": _identity(proposed_by, "Proposal originator"),
         }
     )
     _validate_instance(proposal, root / "schemas/claim-proposal-v1.json", "claim proposal")
@@ -127,12 +146,25 @@ def plan_claim_registration(
         if dependency not in claims:
             raise TransactionError(f"Proposal dependency is not registered: {dependency}")
     source_snapshot = _capture_file(root, proposal["source_document"], required=True)
-    effective_requester = requested_by or created_by_id
-    if approved_by_type == "human" and approved_by_id == effective_requester:
-        raise TransactionError(
-            "A human requester cannot be the sole human approver of claim registration"
-        )
+    creator = _actor(created_by_type, created_by_id)
+    effective_requester = _identity(
+        requested_by or creator["id"], "Registration requester"
+    )
+    approver = _actor(approved_by_type, approved_by_id, approver=True)
+    if approved_by_type == "human":
+        approver_key = _identity_key(approver["id"])
+        originator_keys = {
+            _identity_key(effective_requester),
+            _identity_key(proposal.get("proposed_by")),
+        }
+        if creator["type"] == "human":
+            originator_keys.add(_identity_key(creator["id"]))
+        if approver_key in originator_keys:
+            raise TransactionError(
+                "A human claim originator or requester cannot be the sole human registration approver"
+            )
     created_at = _timestamp(timestamp)
+    _require_later(created_at, proposal.get("proposed_at"), "Claim registration")
     revision = _source_revision(root, source_revision)
     expected_git_head = revision if source_revision is None else None
     evidence_id = _next_evidence_id(root, claim_id)
@@ -142,8 +174,8 @@ def plan_claim_registration(
         evidence_id=evidence_id,
         evidence_class="CLAIM_REGISTRATION",
         created_at=created_at,
-        created_by_type=created_by_type,
-        created_by_id=created_by_id,
+        created_by_type=creator["type"],
+        created_by_id=creator["id"],
         establishes=establishes or [
             f"Registers the exact statement of claim {claim_id} at Gate 4."
         ],
@@ -154,6 +186,7 @@ def plan_claim_registration(
         artifacts=[],
         commands=[],
         environment_json=None,
+        details_json=None,
         notes=f"Created from {proposal_relative}",
         reviewer_type=None,
         reviewer_id=None,
@@ -192,7 +225,7 @@ def plan_claim_registration(
         "from": 3,
         "to": 4,
         "requested_by": effective_requester,
-        "approved_by": _actor(approved_by_type, approved_by_id, approver=True),
+        "approved_by": approver,
         "evidence": [evidence_id],
         "reason": "Exact claim registered from an approved proposal.",
         "created_at": created_at,

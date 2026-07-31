@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import builtins
 import json
 from pathlib import Path
 
 import pytest
-import yaml
 
-from cruthunas.cli import main
 from cruthunas.models import read_yaml
 from cruthunas.policy import run_checks
 from cruthunas.transactions import (
@@ -47,6 +44,49 @@ def _project(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _payload(root: Path, evidence_class: str, suffix: str) -> dict[str, object]:
+    artifact = f"certificates/T001/{suffix}.json"
+    environment = f"audit/fixtures/{suffix}-environment.json"
+    details = f"audit/fixtures/{suffix}-details.json"
+    _write(root / artifact, '{"ok": true}\n')
+    _write(
+        root / environment,
+        json.dumps({"interpreter": "Python 3.13", "dependencies": ["none"], "operating_system": "fixture", "locale": "C", "timezone": "UTC", "environment_variables": "none", "random_seeds": "not applicable"}),
+    )
+    if evidence_class == "COMPUTATION":
+        detail_value = {
+            "algorithm": "Direct finite enumeration",
+            "bounds": "n in [1, 1], inclusive",
+            "arithmetic": "unbounded Python integers",
+            "inputs": ["n = 1"],
+            "input_hashes": "not applicable: generated scalar input",
+            "outputs": [artifact],
+            "output_hashes": "recorded in artifacts",
+            "runtime": "under one second",
+            "resources": "single process, under 64 MiB",
+        }
+    elif evidence_class == "REPRODUCTION":
+        detail_value = {
+            "independent": True,
+            "relationship_to_originator": "No shared implementation or originating context",
+            "inputs_received": ["registered statement", "public fixture"],
+            "saw_original_work": False,
+            "implementation_boundary": "Fresh one-file implementation",
+            "dependency_boundary": "Python standard library only",
+            "result": "Matched expected fixture result",
+            "disagreements": "None",
+        }
+    else:
+        raise AssertionError(evidence_class)
+    _write(root / details, json.dumps(detail_value))
+    return {
+        "artifacts": [artifact],
+        "commands": ["python fixture_check.py"],
+        "environment_json": environment,
+        "details_json": details,
+    }
+
+
 def _register(root: Path) -> None:
     apply_plan(
         plan_claim_proposal(
@@ -76,7 +116,6 @@ def _register(root: Path) -> None:
             timestamp="2026-07-30T19:01:00Z",
         )
     )
-
 
 
 def test_propose_and_register_create_valid_complete_transaction(tmp_path: Path) -> None:
@@ -113,8 +152,8 @@ def test_evidence_add_links_claim_and_computational_support(tmp_path: Path) -> N
             establishes=["Fixture checked for n = 1"],
             does_not_establish=["Any universal statement"],
             source_revision="b" * 40,
-            commands=["python check.py"],
             timestamp="2026-07-30T19:02:00Z",
+            **_payload(root, "COMPUTATION", "computation"),
         )
     )
     result = run_checks(root)
@@ -144,6 +183,7 @@ def test_transition_can_create_evidence_and_change_multiple_axes(tmp_path: Path)
             does_not_establish=["Anything outside n = 1"],
             source_revision="c" * 40,
             timestamp="2026-07-30T19:03:00Z",
+            **_payload(root, "REPRODUCTION", "reproduction"),
         )
     )
     result = run_checks(root)
@@ -215,5 +255,3 @@ def test_duplicate_registration_is_rejected_without_changes(tmp_path: Path) -> N
             timestamp="2026-07-30T19:06:00Z",
         )
     assert (root / "claims/claims.yaml").read_bytes() == before
-
-

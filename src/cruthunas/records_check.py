@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .evidence_policy import claim_originator_identities, evidence_contract_errors
 from .models import Finding, load_and_validate, path_exists, yaml_files
 from .transition_check import check_transition_semantics
 
@@ -13,6 +15,18 @@ EVIDENCE_FOR = {
     "FORMALIZED": {"FORMALIZATION"},
     "EXTERNAL_REVIEW": {"REVIEW_EXTERNAL"},
 }
+
+
+def _timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
 def _local_artifact(root: Path, value: str) -> Path | None:
@@ -32,6 +46,7 @@ def _evidence(
 ) -> tuple[dict[str, dict[str, Any]], list[Finding]]:
     findings: list[Finding] = []
     records: dict[str, dict[str, Any]] = {}
+    record_paths: dict[str, str] = {}
     schema = root / "schemas/evidence-v1.json"
     for path in yaml_files(root, "audit/evidence"):
         record, current = load_and_validate(
@@ -54,6 +69,7 @@ def _evidence(
                 )
             )
         records[evidence_id] = record
+        record_paths[evidence_id] = relative
         claim_id = record.get("claim_id")
         if claim_id not in claims:
             findings.append(
@@ -106,19 +122,22 @@ def _evidence(
                         relative,
                     )
                 )
-        if record.get("class") == "REVIEW_EXTERNAL":
-            reviewer = record.get("reviewer")
-            if not isinstance(reviewer, dict) or reviewer.get("type") not in {
-                "human",
-                "venue",
-            }:
-                findings.append(
-                    Finding(
-                        "review.external_identity_required",
-                        f"External-review evidence {evidence_id} requires a human or venue reviewer",
-                        relative,
-                    )
+
+    for evidence_id, record in records.items():
+        claim_id = record.get("claim_id")
+        originators = (
+            claim_originator_identities(root, claim_id, records)
+            if isinstance(claim_id, str)
+            else frozenset()
+        )
+        for message in evidence_contract_errors(record, originator_ids=originators):
+            findings.append(
+                Finding(
+                    "evidence.contract_incomplete",
+                    message,
+                    record_paths[evidence_id],
                 )
+            )
     return records, findings
 
 
@@ -220,6 +239,72 @@ def _claim_support(
     return findings
 
 
+def _claim_chronology(
+    root: Path,
+    claims: dict[str, dict[str, Any]],
+    evidence: dict[str, dict[str, Any]],
+    transitions: list[dict[str, Any]],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    transitions_by_claim: dict[str, list[dict[str, Any]]] = {}
+    for record in transitions:
+        claim_id = record.get("claim_id")
+        if isinstance(claim_id, str):
+            transitions_by_claim.setdefault(claim_id, []).append(record)
+
+    for claim_id, claim in claims.items():
+        introduced = _timestamp(claim.get("introduced_at"))
+        updated = _timestamp(claim.get("updated_at"))
+        if introduced is not None and updated is not None and updated < introduced:
+            findings.append(
+                Finding(
+                    "claim.chronology_reversed",
+                    f"Claim {claim_id} updated_at precedes introduced_at",
+                    "claims/claims.yaml",
+                )
+            )
+        if updated is None:
+            continue
+        for evidence_id in claim.get("evidence", []):
+            record = evidence.get(evidence_id)
+            event = _timestamp(record.get("created_at")) if isinstance(record, dict) else None
+            if introduced is not None and event is not None and event < introduced:
+                findings.append(
+                    Finding(
+                        "evidence.before_claim_introduction",
+                        f"Evidence {evidence_id} predates claim {claim_id} introduction",
+                        f"audit/evidence/{claim_id}/{evidence_id}.yaml",
+                    )
+                )
+            if event is not None and event > updated:
+                findings.append(
+                    Finding(
+                        "claim.updated_at_before_evidence",
+                        f"Claim {claim_id} updated_at precedes linked evidence {evidence_id}",
+                        "claims/claims.yaml",
+                    )
+                )
+        for transition in transitions_by_claim.get(claim_id, []):
+            event = _timestamp(transition.get("created_at"))
+            if introduced is not None and event is not None and event < introduced:
+                findings.append(
+                    Finding(
+                        "transition.before_claim_introduction",
+                        f"Transition for {claim_id} predates claim introduction",
+                        "claims/claims.yaml",
+                    )
+                )
+            if event is not None and event > updated:
+                findings.append(
+                    Finding(
+                        "claim.updated_at_before_transition",
+                        f"Claim {claim_id} updated_at precedes a transition record",
+                        "claims/claims.yaml",
+                    )
+                )
+    return findings
+
+
 def check_records(
     root: Path,
     claims: dict[str, dict[str, Any]],
@@ -229,6 +314,7 @@ def check_records(
     findings.extend(transition_findings)
     findings.extend(check_transition_semantics(root, claims, evidence))
     findings.extend(_claim_support(claims, evidence))
+    findings.extend(_claim_chronology(root, claims, evidence, transitions))
     schema = root / "schemas/exemption-v1.json"
     for path in yaml_files(root, "audit/exemptions"):
         _, current = load_and_validate(

@@ -80,14 +80,16 @@ cruthunas adoption gaps --root PATH --json
 The report is deterministic and read-only. It identifies:
 
 - missing governed project structure;
-- historical IDs that fail the canonical pattern, including whether a one-letter legacy ID can be padded automatically;
+- historical IDs that fail the canonical pattern, preserving dotted forms such as `C2.1` as exact manual findings rather than truncating them to a pad-compatible prefix;
 - unpinned GitHub Actions, workflow containers, and Dockerfile base images;
-- missing evidence-creator identities and reproduction or review independence metadata;
+- missing evidence-creator identities and reproduction or review independence metadata, including affirmative prose variants such as “independently regenerated”;
 - canonical skills without an adapter manifest, or drift after adapters have been adopted;
 - project-mode, framework-commit, version, release-attestation, and conformance incompatibilities;
 - legacy or untyped records requiring a manual migration decision.
 
 A gap marked `automatic` means the mechanical correction is deterministic. It does not authorize mutation. A `manual` gap requires a human decision or evidence that cannot be inferred from repository text.
+
+Punctuated historical IDs remain manual while the alias contract cannot represent them losslessly. Independence-language detection excludes explicit negation, requirement or future wording, questions, and ordinary mathematical uses such as “independently of `q`”; it reports prose assertions for provenance review and does not establish independence itself.
 
 ## Actor roles
 

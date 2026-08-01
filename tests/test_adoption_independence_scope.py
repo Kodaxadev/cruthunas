@@ -39,6 +39,11 @@ from cruthunas.adoption_independence import _affirmative_phrases
         "    Independent review was completed.",
         "A purportedly formal independent review was completed.",
         "An alleged formal independent review was completed.",
+        "The result was independently verified and independently reproduced, according to the authors.",
+        "The result was independently verified and independently reproduced, reportedly.",
+        "The result was independently verified, independently reproduced, and independently checked, as reported by the authors.",
+        "<!--\nContext\n\nIndependent review was completed.\n-->",
+        "<!--\nContext\n\nIndependent review was completed.",
     ],
 )
 def test_eighth_cycle_nonassertions_are_excluded(text: str) -> None:
@@ -104,3 +109,21 @@ def test_non_markdown_text_retains_plain_text_scanning() -> None:
     text = '    print("The result was independently verified.")'
 
     assert _affirmative_phrases(text, markdown=False) == {"independently verified"}
+
+
+def test_contrast_resets_preposed_attribution_scope() -> None:
+    text = (
+        "According to the authors, the theorem is old, but the certificate "
+        "was independently verified."
+    )
+
+    assert _affirmative_phrases(text) == {"independently verified"}
+
+
+def test_visible_prose_after_multiline_html_comment_is_scanned() -> None:
+    text = (
+        "<!--\ncommented material\n-->\n"
+        "The certificate was independently verified."
+    )
+
+    assert _affirmative_phrases(text) == {"independently verified"}

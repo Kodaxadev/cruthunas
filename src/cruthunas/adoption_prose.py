@@ -12,7 +12,6 @@ STANDALONE = re.compile(
 )
 INLINE_LINK = re.compile(r"\[([^\]\n]+)\]\((?:[^()\n]|\([^()\n]*\))*\)")
 INLINE_IMAGE = re.compile(r"!\[[^\]\n]*\]\((?:[^()\n]|\([^()\n]*\))*\)")
-HTML_COMMENT = re.compile(r"<!--[\s\S]*?-->")
 UNDERSCORE_EMPHASIS = re.compile(r"(?<!\w)(__?)(?=\S)([^\n]*?\S)\1(?!\w)")
 STAR_EMPHASIS = re.compile(r"(?<!\\)(\*{1,3})(?=\S)([^\n]*?\S)\1")
 
@@ -55,11 +54,33 @@ def _mask_inline_code(text: str) -> str:
     return "".join(chars)
 
 
+def _mask_html_line(line: str, in_comment: bool) -> tuple[str, bool]:
+    chars = list(line)
+    position = 0
+    while position < len(line):
+        if in_comment:
+            close = line.find("-->", position)
+            if close < 0:
+                _mask_range(chars, position, len(line))
+                return "".join(chars), True
+            _mask_range(chars, position, close + 3)
+            position = close + 3
+            in_comment = False
+            continue
+        opening = line.find("<!--", position)
+        if opening < 0:
+            break
+        close = line.find("-->", opening + 4)
+        if close < 0:
+            _mask_range(chars, opening, len(line))
+            return "".join(chars), True
+        _mask_range(chars, opening, close + 3)
+        position = close + 3
+    return "".join(chars), in_comment
+
+
 def _visible_markup(text: str) -> str:
-    chars = list(text)
-    for match in HTML_COMMENT.finditer(text):
-        _mask_range(chars, match.start(), match.end())
-    masked = _mask_inline_code("".join(chars))
+    masked = _mask_inline_code(text)
     chars = list(masked)
     for match in INLINE_IMAGE.finditer(masked):
         _mask_range(chars, match.start(), match.end())
@@ -85,6 +106,7 @@ def prose_blocks(text: str, *, markdown: bool = True) -> tuple[str, ...]:
     current: list[str] = []
     fence_char = ""
     fence_length = 0
+    in_comment = False
 
     def flush() -> None:
         if current:
@@ -100,6 +122,7 @@ def prose_blocks(text: str, *, markdown: bool = True) -> tuple[str, ...]:
                 fence_char = ""
                 fence_length = 0
             continue
+        line, in_comment = _mask_html_line(line, in_comment)
         opening = FENCE_OPEN.match(line)
         if opening:
             flush()

@@ -179,14 +179,21 @@ def _action_candidates(text: str) -> list[ActionCandidate]:
 
 def _action_exclusions(text: str, candidates: list[ActionCandidate]) -> list[bool]:
     excluded: list[bool] = []
+    postposed: list[bool] = []
     for index, candidate in enumerate(candidates):
         sentence, start, end = _sentence_context(text, candidate.start, candidate.end)
         direct = _directly_excluded(sentence, start, end)
+        postposed.append(bool(ATTRIBUTION_SUFFIX.search(sentence[end:end + 140])))
         if not direct and index:
             prior = candidates[index - 1]
             if COORDINATION.fullmatch(text[prior.end:candidate.start]):
                 direct = excluded[index - 1]
         excluded.append(direct)
+    for index in range(len(candidates) - 2, -1, -1):
+        bridge = text[candidates[index].end:candidates[index + 1].start]
+        if postposed[index + 1] and COORDINATION.fullmatch(bridge):
+            excluded[index] = True
+            postposed[index] = True
     return excluded
 
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
+from .adoption_prose import prose_blocks
 from .adoption_scan import TEXT_SUFFIXES, read_adoption_text
 from .adoption_types import AdoptionGap
 from .evidence_policy import INDEPENDENCE_KEYS
@@ -13,308 +15,230 @@ def _ci(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern, re.IGNORECASE)
 
 
-INDEPENDENCE_ACTION = (
+ACTION = (
     r"regenerated|reproduced|reimplemented|implemented|re-?verified|verified|"
     r"cross-?checked|checked|audited|reviewed|recomputed|validated|replicated|"
     r"confirmed|established|refereed|closed"
 )
-ATTRIBUTED_ACTION = rf"(?:{INDEPENDENCE_ACTION}|approved|found|supported)"
-ATTRIBUTION_TAIL = rf"{ATTRIBUTED_ACTION}\s+(?:against|by|using|with)\s+" \
-    r"(?:(?:an?|the|\d+)\s+)?(?:[A-Za-z0-9_+\-/]+\s+){0,3}"
-INDEPENDENT_NOUN = r"\bindependent(?:\s+[A-Za-z0-9_+\-/]+){0,3}?\s+"
-ACTOR_NOUN_PATTERN = _ci(
-    INDEPENDENT_NOUN + r"(?:auditors?|referees?|reviewers?|validators?|verifiers?)\b",
-)
-ARTIFACT_NOUN_PATTERN = _ci(
-    INDEPENDENT_NOUN
-    + r"(?:certificates?|generators?|implementations?|verification\s+frameworks?)\b",
-)
-PROCESS_NOUN_PATTERN = _ci(
-    r"(?:\bindependent(?:\s+[A-Za-z0-9_+\-/]+){0,2}?\s+"
-    r"(?:audits?|checks?|reimplementations?|replications?|reproductions?|"
-    r"reviews?|validations?|verifications?)\b|\bexternal\s+reviews?\b)",
-)
-ACTION_SEPARATOR = r"[\s,;:()\-\u2013\u2014]+"
-FORWARD_ACTION_PATTERN = _ci(rf"\bindependently{ACTION_SEPARATOR}(?:{INDEPENDENCE_ACTION})\b")
-REVERSE_ACTION_PATTERN = _ci(rf"\b(?:{INDEPENDENCE_ACTION})\b\s+independently\b")
-COMPLETED_ACTION_PATTERNS = (FORWARD_ACTION_PATTERN, REVERSE_ACTION_PATTERN)
-COORDINATOR = _ci(r"^\s*(?:,|,?\s*(?:and|or))\s*$")
+FORWARD_ACTION = _ci(rf"\bindependently(?:\s+|[\u2013\u2014])(?:{ACTION})\b")
+REVERSE_ACTION = _ci(rf"\b(?:{ACTION})\b\s+independently\b")
 SENTENCE_BOUNDARY = re.compile(r"[.!?](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
-CLAUSE_TERMINATOR = re.compile(r"[.!?;](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
-CLAUSE_BOUNDARY = _ci(r"[.!?;]|,\s+(?:and|but)\b|\bbut\b|\bhowever\b")
-INTERROGATIVE_START = _ci(
-    r"^\s*(?:[-*+>]\s+|#+\s*)?(?:question\s*:|"
+CONTRAST = _ci(r"(?:,\s*)?\b(?:but|however|nevertheless)\b(?:\s+also)?")
+SCOPE_BREAK = re.compile(r";")
+SUBJECT_RESET = _ci(
+    r"(?:,\s*|\s+)\b(?:and|or)\s+(?=(?:(?:an?|the|this|that|these|those)\s+)?"
+    r"[A-Za-z0-9_-]+\s+(?:is|are|was|were|has|have|had|does|do|did)\b)"
+)
+INTERROGATIVE = _ci(
+    r"^\s*(?:[-+>]\s+|#+\s*)?(?:question\s*:|whether\b|"
     r"(?:is|are|was|were|has|have|had|do|does|did|can|could|would|should|"
-    r"will|may|might)\b|"
-    r"(?:how|what|when|where|why)\s+"
-    r"(?:is|are|was|were|has|have|had|do|does|did|can|could|would|should|"
-    r"will|may|might)\b)",
+    r"will|may|might)\b|(?:how|what|when|where|why)\s+(?:is|are|was|were|"
+    r"has|have|had|do|does|did|can|could|would|should|will|may|might)\b)"
 )
-UNCERTAINTY_PREFIX = _ci(
-    r"(?:^\s*(?:[-*+>]\s+|#+\s*)?whether\b|"
-    r"\b(?:do|does|did)\s+not\s+know\s+whether\b|"
-    r"\b(?:unclear|uncertain|undetermined|unknown)\s+whether\b)",
+UNCERTAINTY = _ci(r"\b(?:do|does|did)\s+not\s+know\s+whether\b|"
+                  r"\b(?:unclear|uncertain|undetermined|unknown)\s+whether\b|"
+                  r"\bwhether\b[\s\S]{0,120}$")
+NEGATION = _ci(
+    r"\bneither\b[\s\S]{0,120}$|\bno\s+(?:evidence|record|documentation|proof)"
+    r"\s+of[\s\S]{0,80}$|^\s*no\b(?:\s+\w+){0,5}\s+"
+    r"(?:has|have|had|does|do|did|is|are|was|were)\s*$|"
+    r"\b(?:is|are|was|were|has|have|had|does|do|did)\s+"
+    r"(?:not(?!\s+only\b)|never)(?:\s+(?:yet|still|be|been))*\s*$|"
+    r"\b(?:cannot|can't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|"
+    r"doesn't|don't|didn't)(?:\s+(?:yet|still|be|been))*\s*$|"
+    r"\b(?:by\s+no\s+means|anything\s+but|hardly|scarcely)\s*$"
 )
-EPISTEMIC_PREFIX = _ci(
-    rf"(?:\b(?:allegedly|apparently|possibly|probably|purportedly|reportedly|"
-    rf"supposedly)(?:\s+{ATTRIBUTION_TAIL})?\s*|"
-    r"\b(?:alleged|apparent|possible|probable|purported|reported|supposed)\s*$|"
-    r"\b(?:allege(?:d|s)?|believe(?:d|s)?|claim(?:ed|s)?|report(?:ed|s)?|"
-    r"say|says|said|suggest(?:ed|s)?)\b(?:\s+that)?[\s\S]{0,96}$|"
-    r"\b(?:appear(?:s|ed)?|seem(?:s|ed)?)\b[\s\S]{0,80}"
-    rf"\bto\s+have\s+been(?:\s+{ATTRIBUTION_TAIL})?\s*|"
-    r"\b(?:is|are|was|were)\s+(?:very\s+)?(?:believed|likely|said)\b"
-    rf"[\s\S]{{0,80}}\bto\s+have\s+been(?:\s+{ATTRIBUTION_TAIL})?\s*|"
-    r"\b(?:alleged|believed|claimed|reported|said|supposed)\s+that"
-    rf"[\s\S]{{0,96}}\b(?:has|have|had|is|are|was|were)(?:\s+been)?"
-    rf"(?:\s+{ATTRIBUTION_TAIL})?\s*)$",
+MODAL = _ci(r"\b(?:can|could|may|might|must|shall|should|will|would)\b[\s\S]{0,120}$")
+FUTURE = _ci(r"\b(?:expected|intended|scheduled|planned|hopes?|plans?)\b"
+             r"[\s\S]{0,120}(?:\bto(?:\s+be)?\s*)$")
+EVIDENTIAL = _ci(
+    r"\b(?:allegedly|apparently|possibly|probably|purportedly|reportedly|"
+    r"supposedly)\s*$|\b(?:alleged|apparent|possible|probable|"
+    r"purported|reported|supposed)\s+$|\b(?:appear(?:s|ed)?|seem(?:s|ed)?)\b"
+    r"[\s\S]{0,100}\bto\s+have\s+been[\s\S]{0,60}$|"
+    r"\b(?:is|are|was|were)\s+(?:believed|likely|said)\b[\s\S]{0,100}"
+    r"\bto\s+have\s+been[\s\S]{0,60}$|^\s*(?:allegedly|apparently|possibly|"
+    r"probably|purportedly|reportedly|supposedly)\b[\s\S]{0,120}$|"
+    r"\b(?:is|are|was|were|has|have|had)(?:\s+been)?\s+(?:allegedly|apparently|"
+    r"possibly|probably|purportedly|reportedly|supposedly)\b[\s\S]{0,80}$"
 )
-NEGATING_PREFIX = _ci(
-    r"(?:\b(?:(?:does|do|did)\s+not|doesn't|don't|didn't|cannot|can't)\s+"
-    r"(?:establish|constitute|provide|demonstrate|claim)\b.*|"
-    r"\bno\b(?:\s+\w+){0,4}\s+"
-    r"(?:has|have|had|does|do|did|is|are|was|were)\s*|"
-    r"\b(?:is|are|was|were|has|have|had|does|do|did)\s+(?:not|never)"
-    r"(?:\s+(?:yet|still|be|been))*\s*|"
-    r"\b(?:no|not|never|without|cannot|can't|isn't|aren't|wasn't|weren't|"
-    r"hasn't|haven't|hadn't|doesn't|don't|didn't)"
-    r"(?:\s+(?:yet|still|be|been))*\s*)$",
+REPORTING = r"allege(?:d|s)?|assert(?:ed|s)?|believe(?:d|s)?|claim(?:ed|s)?|maintain(?:ed|s)?|note(?:d|s)?|report(?:ed|s)?|say|says|said|states|stated|suggest(?:ed|s)?|write|writes|wrote"
+ATTRIBUTOR = r"authors?|auditors?|maintainers?|papers?|reports?|researchers?|reviewers?|teams?|we|they|he|she|it"
+ATTRIBUTION_PREFIX = _ci(
+    rf"(?:\b(?:the\s+)?(?:{ATTRIBUTOR})\s+(?:{REPORTING})\b(?:\s+that)?"
+    rf"[\s\S]{{0,120}}$|\bit\s+(?:is|was|has\s+been)\s+(?:alleged|asserted|"
+    rf"believed|claimed|noted|reported|said|stated|suggested)\s+that[\s\S]{{0,120}}$|"
+    r"\baccording\s+to\b[\s\S]{0,120}$|\bas\s+(?:(?:reported|stated|noted|claimed)"
+    r"\s+(?:by|in)|[\w -]+\s+"
+    rf"(?:{REPORTING}))\b[\s\S]{{0,120}}$)"
 )
-GOVERNING_REQUIREMENT_PREFIX = _ci(
-    r"(?:\b(?:must|should|shall|will|would|could|can|may|might)"
-    r"(?:\s+(?:not|still|be|have|been|to)){0,4}|"
-    r"\b(?:needs?|needed|requires?|required|awaits?|awaiting|pending|planned|"
-    r"proposed))\s*$",
+ATTRIBUTION_SUFFIX = _ci(
+    rf"^[\s,;:()\"'\u201c\u201d-]*(?:according\s+to\b|as\s+(?:reported|stated|noted|"
+    rf"claimed)\s+(?:by|in)\b|"
+    rf"(?:the\s+)?(?:{ATTRIBUTOR})\s+(?:{REPORTING})\b|(?:allegedly|apparently|possibly|"
+    r"probably|purportedly|reportedly|supposedly)\b)"
 )
-NONCOMPLETION_PREFIX = _ci(
-    r"(?:\bno\s+(?:evidence|record|documentation|proof)\s+of\s*|"
-    r"\b(?:(?:is|are|was|were)\s+)?(?:failed|unable|attempted)\s+"
-    r"(?:to\s+be|to)\s*|"
-    r"\b(?:expected|intended|scheduled|planned)\b.{0,80}\bto"
-    r"(?:\s+be)?\s*)$",
-)
-NEGATING_SUFFIX = _ci(
-    r"^[\s,;:()\-\u2013\u2014]*(?:(?:however|nevertheless|in\s+fact)"
-    r"[\s,;:()\-\u2013\u2014]+)?(?:(?:is|are|was|were|has|have|had|does|do|did)"
-    r"\s+(?:not|never)|cannot|can't|isn't|aren't|wasn't|weren't|hasn't|"
-    r"haven't|hadn't|doesn't|don't|didn't)\b",
-)
+NEGATING_SUFFIX = _ci(r"^[\s,()\-\u2013\u2014]*(?:(?:is|are|was|were|has|have|had|"
+                      r"does|do|did)\s+(?:not|never)|cannot|can't|failed\b)")
 NONCOMPLETION_SUFFIX = _ci(
-    r"^[\s,;:()\-\u2013\u2014]*(?:(?:however|nevertheless|in\s+fact)"
-    r"[\s,;:()\-\u2013\u2014]+)?(?:"
-    r"(?:is|are|was|were|has|have|had)\s+yet\s+to\b|"
-    r"remains?\s+(?:outstanding|unfinished|incomplete|unperformed)\b|"
-    r"(?:(?:is|are|was|were)\s+)?(?:failed|unable)\s+to\b|"
-    r"(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+"
-    r"(?:abandoned|cancelled|canceled)\b|"
-    r"(?:refused|declined)\s+to\b|"
-    r"unsuccessfully\b|"
-    r"(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+attempted\b"
-    r".*\bbut\s+(?:failed|did\s+not\s+succeed)\b)",
+    r"^[\s,()\-\u2013\u2014]*(?:(?:is|are|was|were|has|have|had)\s+yet\s+to\b|"
+    r"remains?\s+(?:outstanding|unfinished|incomplete|unperformed|underway|in\s+progress)\b|"
+    r"(?:(?:is|are|was|were)\s+)?(?:failed|unable)\s+to\b|(?:is|are|was|were|"
+    r"has\s+been|have\s+been|had\s+been)\s+(?:abandoned|cancelled|canceled|attempted)\b|"
+    r"(?:refused|declined)\s+to\b|unsuccessfully\b)"
 )
-NONASSERTIVE_SUFFIX = _ci(
-    r"^[\s,;:()\-\u2013\u2014]*(?:(?:is|are|was|were|remains?)\s+)?"
-    r"(?:still\s+)?(?:required|needed|pending|awaiting|planned|proposed|"
-    r"must|should|shall|will|would|could|can|may|might)\b",
+INCOMPLETE_PREFIX = _ci(r"\b(?:is|are|was|were)\s+being\s*$|\bto\s+be\s*$|"
+                        r"\b(?:failed|unable|attempted)\s+(?:to\s+be|to)\s*$")
+COORDINATION = _ci(
+    r"^\s*(?:(?:,\s*)?(?:and|or)\s+(?:(?:also|again|then|separately|"
+    r"subsequently)\s+)?|(?:,\s*)?nor(?:\s+(?:was|were|is|are|has|have|had)"
+    r"\s+(?:it|they)|\s+(?:[A-Za-z0-9_-]+\s+){1,5})?\s+|,\s*)$"
 )
-EPISTEMIC_SUFFIX = _ci(r"^[\s,;:()\-\u2013\u2014]+(?:allegedly|apparently|possibly|"
-                        r"probably|purportedly|reportedly|supposedly)\b")
-PROGRESSIVE_PREFIX = _ci(r"\b(?:is|are|was|were)\s+being\s*$")
-INFINITIVE_PASSIVE_PREFIX = re.compile(r"\bto\s+be\s*$", re.IGNORECASE)
-MODAL_CHAIN_PREFIX = _ci(
-    r"\b(?:can|could|may|might|must|shall|should|will|would)\b"
-    r"[\s\S]{0,96}\b(?:be|been|have)\s*$",
-)
-MODAL_SCOPE = _ci(r"\b(?:can|could|may|might|must|shall|should|will|would)\b[\s\S]{0,120}$")
-COMPLETION_MODIFIER = (
-    r"actually|already|also|eventually|fully|independently|now|separately|"
-    r"successfully"
-)
-COMPLETION_MODIFIERS = rf"(?:(?:{COMPLETION_MODIFIER})\s+)*"
-AGENT_BASE_ACTION = (
-    r"approve|audit|check|close|confirm|cross-?check|establish|find|implement|recompute|"
-    r"referee|regenerate|reimplement|reject|replicate|reproduce|review|validate|verify"
-)
-AGENT_PAST_ACTION = rf"(?:{INDEPENDENCE_ACTION}|approved|found|rejected)"
-AGENT_RESULT = r"agrees?|agreed|covers?|covered|matches?|matched|matching"
-ACTOR_COMPLETION_SUFFIX = _ci(
-    rf"^[\s,;:()\-\u2013\u2014]*(?:"
-    rf"(?:has|have|had)\s+{COMPLETION_MODIFIERS}{AGENT_PAST_ACTION}|"
-    rf"did\s+{COMPLETION_MODIFIERS}(?:{AGENT_BASE_ACTION})|"
-    rf"{COMPLETION_MODIFIERS}(?:{AGENT_PAST_ACTION}|{AGENT_RESULT}))\b",
-)
-ACTOR_COMPLETION_PREFIX = _ci(
-    rf"(?:\b(?:(?:has|have|had)\s+been|(?:is|are|was|were))\s+"
-    rf"{COMPLETION_MODIFIERS}{ATTRIBUTION_TAIL}|"
-    r"\bagreement\s+with\s+(?:(?:an?|the)\s+)?)$",
-)
-PROCESS_COMPLETION_SUFFIX = _ci(
-    rf"^[\s,;:()\-\u2013\u2014]*(?:"
-    rf"(?:has|have|had)\s+(?:been\s+)?{COMPLETION_MODIFIERS}"
-    r"(?:completed|concluded|finished|performed|succeeded)|"
-    rf"(?:is|are|was|were)\s+{COMPLETION_MODIFIERS}"
-    r"(?:complete|completed|concluded|finished|performed|successful)|"
-    rf"(?:has|have|had)\s+{COMPLETION_MODIFIERS}(?:approved|confirmed|found)|"
-    rf"{COMPLETION_MODIFIERS}(?:approved|completed|concluded|confirmed|finished|found|"
-    r"performed|succeeded))\b",
-)
-ARTIFACT_RESULT_SUFFIX = _ci(
-    rf"^[\s,;:()\-\u2013\u2014]*(?:{COMPLETION_MODIFIERS}"
-    rf"(?:{AGENT_PAST_ACTION}|{AGENT_RESULT}))\b",
-)
+
+INDEPENDENT_NOUN = r"\bindependent(?:\s+[A-Za-z0-9_+\-/]+){0,3}?\s+"
+ACTOR_NOUN = _ci(INDEPENDENT_NOUN + r"(?:auditors?|referees?|reviewers?|validators?|verifiers?)\b")
+ARTIFACT_NOUN = _ci(INDEPENDENT_NOUN + r"(?:certificates?|generators?|implementations?|verification\s+frameworks?)\b")
+PROCESS_NOUN = _ci(r"(?:\bindependent(?:\s+[A-Za-z0-9_+\-/]+){0,2}?\s+(?:audits?|"
+                   r"checks?|reimplementations?|replications?|reproductions?|reviews?|"
+                   r"validations?|verifications?)\b|\bexternal\s+reviews?\b)")
+MODIFIER = r"(?:(?:actually|already|also|eventually|fully|independently|now|separately|successfully)\s+)*"
+PAST_ACTION = rf"(?:{ACTION}|approved|found|rejected|supported)"
+BASE_ACTION = r"approve|audit|check|close|confirm|cross-?check|establish|find|implement|recompute|referee|regenerate|reimplement|reject|replicate|reproduce|review|validate|verify"
+RESULT = r"agrees?|agreed|covers?|covered|matches?|matched|matching"
+ACTOR_SUFFIX = _ci(rf"^[\s,;()\-\u2013\u2014]*(?:(?:has|have|had)\s+{MODIFIER}{PAST_ACTION}|"
+                   rf"did\s+{MODIFIER}(?:{BASE_ACTION})|{MODIFIER}(?:{PAST_ACTION}|{RESULT}))\b")
+PASSIVE_PREFIX = _ci(rf"\b(?:(?:has|have|had)\s+been|is|are|was|were)\s+{MODIFIER}"
+                     rf"(?:{PAST_ACTION})\s+(?:against|by|using|with)\s+(?:(?:an?|the)\s+)?"
+                     r"(?:[A-Za-z0-9][A-Za-z0-9-]*\s+){0,2}$")
+AGREEMENT_PREFIX = _ci(r"\bagreement\s+with\s+(?:(?:an?|the)\s+)?$")
+PROCESS_SUFFIX = _ci(rf"^[\s,;()\-\u2013\u2014]*(?:(?:has|have|had)\s+(?:been\s+)?{MODIFIER}"
+                     r"(?:completed|concluded|finished|performed|succeeded)|(?:is|are|was|were)\s+"
+                     rf"{MODIFIER}(?:complete|completed|concluded|finished|performed|successful)|"
+                     rf"(?:has|have|had)\s+{MODIFIER}(?:approved|confirmed|found)|{MODIFIER}"
+                     r"(?:approved|completed|concluded|confirmed|finished|found|performed|succeeded))\b")
+ARTIFACT_SUFFIX = _ci(rf"^[\s,;()\-\u2013\u2014]*{MODIFIER}(?:{PAST_ACTION}|{RESULT})\b")
 SUBJECT_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+\-/]*")
-SUBJECT_DETERMINERS = {
-    "a", "all", "an", "both", "each", "eight", "every", "five", "four",
-    "nine", "one", "seven", "six", "ten", "that", "the", "these", "this",
-    "those", "three", "two"}
-SUBJECT_ORDINALS = {"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"}
-SUBJECT_EMBEDDERS = {"about", "concerning", "for", "of", "regarding", "toward", "towards"}
+DETERMINERS = {"a", "all", "an", "both", "each", "eight", "every", "five", "four", "nine", "one", "seven", "six", "ten", "that", "the", "these", "this", "those", "three", "two"}
+ORDINALS = {"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"}
+EMBEDDERS = {"about", "concerning", "for", "of", "regarding", "toward", "towards"}
 MODIFIER_SUFFIXES = ("al", "ary", "ed", "ent", "ic", "ical", "ive", "ory", "ous", "ly")
-MARKDOWN_BLOCK_START = re.compile(r"^\s{0,3}(?:#{1,6}(?:\s|$)|(?:[-+*]|\d+[.)])\s+|(?:`{3}|~{3})|\|)")
-MARKDOWN_STANDALONE = re.compile(r"^\s{0,3}(?:#{1,6}(?:\s|$)|(?:[-*_]\s*){3,}$|=+\s*$|(?:`{3}|~{3}))")
+NOUN_HEDGES = {"alleged", "allegedly", "apparent", "apparently", "claimed", "possible",
+               "possibly", "probable", "probably", "purported", "purportedly", "reported",
+               "reportedly", "supposed", "supposedly"}
 
 
-def _sentence_context(text: str, match: re.Match[str]) -> tuple[str, int, int]:
-    start = 0
-    end = len(text)
+@dataclass(frozen=True)
+class ActionCandidate:
+    start: int
+    end: int
+    phrase: str
+
+
+def _sentence_context(text: str, start_at: int, end_at: int) -> tuple[str, int, int]:
+    start, end = 0, len(text)
     for boundary in SENTENCE_BOUNDARY.finditer(text):
-        if boundary.end() <= match.start():
+        if boundary.end() <= start_at:
             start = boundary.end()
-        elif boundary.start() >= match.end():
+        elif boundary.start() >= end_at:
             end = boundary.end()
             break
-    return text[start:end], match.start() - start, match.end() - start
+    return text[start:end], start_at - start, end_at - start
 
 
-def _clause_prefix(sentence: str, match_start: int) -> str:
-    return CLAUSE_BOUNDARY.split(sentence[:match_start])[-1]
+def _segment_prefix(sentence: str, start: int) -> str:
+    prefix = sentence[:start]
+    resets = [*CONTRAST.finditer(prefix), *SUBJECT_RESET.finditer(prefix),
+              *SCOPE_BREAK.finditer(prefix)]
+    return prefix[max(resets, key=lambda match: match.end()).end():] if resets else prefix
 
 
-def _is_question_context(sentence: str, match_start: int, match_end: int) -> bool:
-    prefix = _clause_prefix(sentence, match_start)
-    if INTERROGATIVE_START.search(prefix) or UNCERTAINTY_PREFIX.search(prefix):
-        return True
-    terminator = CLAUSE_TERMINATOR.search(sentence, match_end)
-    return terminator is not None and terminator.group(0) == "?"
+def _directly_excluded(sentence: str, start: int, end: int) -> bool:
+    prefix = _segment_prefix(sentence, start)
+    suffix = sentence[end:end + 140]
+    terminator = re.search(r"[!?;]", sentence[end:])
+    question = bool(INTERROGATIVE.search(sentence.lstrip(' \t\"\u201c')) or
+                    UNCERTAINTY.search(prefix) or
+                    (terminator is not None and terminator.group(0) == "?"))
+    return question or any(pattern.search(prefix) for pattern in (
+        NEGATION, MODAL, FUTURE, EVIDENTIAL, ATTRIBUTION_PREFIX, INCOMPLETE_PREFIX,
+    )) or any(pattern.search(suffix) for pattern in (
+        NEGATING_SUFFIX, NONCOMPLETION_SUFFIX, ATTRIBUTION_SUFFIX,
+    ))
 
 
-def _is_nonassertive_context(sentence: str, match_start: int, match_end: int) -> bool:
-    if _is_question_context(sentence, match_start, match_end):
-        return True
-    prefix = _clause_prefix(sentence, match_start)
-    suffix = sentence[match_end : match_end + 100]
-    if (
-        NEGATING_PREFIX.search(prefix)
-        or EPISTEMIC_PREFIX.search(prefix)
-        or GOVERNING_REQUIREMENT_PREFIX.search(prefix)
-        or NONCOMPLETION_PREFIX.search(prefix)
-        or NEGATING_SUFFIX.search(suffix)
-        or NONCOMPLETION_SUFFIX.search(suffix)
-        or NONASSERTIVE_SUFFIX.search(suffix)
-        or EPISTEMIC_SUFFIX.search(suffix)
-        or PROGRESSIVE_PREFIX.search(prefix)
-        or INFINITIVE_PASSIVE_PREFIX.search(prefix)
-        or MODAL_CHAIN_PREFIX.search(prefix)
-    ):
-        return True
-    priors = [match for pattern in COMPLETED_ACTION_PATTERNS
-              for match in pattern.finditer(sentence, 0, match_start)]
-    for prior in sorted(priors, key=lambda item: item.start(), reverse=True):
-        if COORDINATOR.fullmatch(sentence[prior.end() : match_start]):
-            return _is_nonassertive_context(sentence, prior.start(), prior.end())
-    return False
+def _action_candidates(text: str) -> list[ActionCandidate]:
+    matches = [match for pattern in (FORWARD_ACTION, REVERSE_ACTION) for match in pattern.finditer(text)]
+    candidates: list[ActionCandidate] = []
+    for match in sorted(matches, key=lambda item: (item.start(), -(item.end() - item.start()))):
+        if candidates and match.start() < candidates[-1].end:
+            continue
+        phrase = re.sub(r"\s+", " ", match.group(0).strip().casefold())
+        candidates.append(ActionCandidate(match.start(), match.end(), phrase))
+    return candidates
 
 
-def _is_nonassertive(text: str, match: re.Match[str]) -> bool:
-    sentence, match_start, match_end = _sentence_context(text, match)
-    return _is_nonassertive_context(sentence, match_start, match_end)
+def _action_exclusions(text: str, candidates: list[ActionCandidate]) -> list[bool]:
+    excluded: list[bool] = []
+    for index, candidate in enumerate(candidates):
+        sentence, start, end = _sentence_context(text, candidate.start, candidate.end)
+        direct = _directly_excluded(sentence, start, end)
+        if not direct and index:
+            prior = candidates[index - 1]
+            if COORDINATION.fullmatch(text[prior.end:candidate.start]):
+                direct = excluded[index - 1]
+        excluded.append(direct)
+    return excluded
 
 
-def _markdown_blocks(text: str) -> list[str]:
-    blocks: list[str] = []
-    current: list[str] = []
-    for line in text.splitlines(keepends=True):
-        starts_block = MARKDOWN_BLOCK_START.match(line)
-        if not line.strip() or starts_block:
-            if current:
-                blocks.append("".join(current))
-                current = []
-            if not line.strip():
-                continue
-        current.append(line)
-        if MARKDOWN_STANDALONE.match(line):
-            blocks.append("".join(current))
-            current = []
-    if current:
-        blocks.append("".join(current))
-    return blocks
-
-
-def _noun_context(text: str, match: re.Match[str]) -> tuple[str, str]:
-    sentence, match_start, match_end = _sentence_context(text, match)
-    prefix = _clause_prefix(sentence, match_start)
-    suffix = sentence[match_end : match_end + 120]
-    return prefix, suffix
+def _noun_context(text: str, match: re.Match[str]) -> tuple[str, str, str, int, int]:
+    sentence, start, end = _sentence_context(text, match.start(), match.end())
+    return sentence, _segment_prefix(sentence, start), sentence[end:end + 140], start, end
 
 
 def _has_noun_subject(prefix: str) -> bool:
-    cell = prefix.rsplit("|", 1)[-1]
-    cell = re.sub(r"^\s*(?:[-*+>]\s+|#+\s*)?", "", cell).strip()
+    cell = re.sub(r"^\s*(?:[-+>]\s+|#+\s*)?", "", prefix.rsplit("|", 1)[-1]).strip()
     tokens = SUBJECT_TOKEN.findall(cell)
-    residue = SUBJECT_TOKEN.sub("", cell).strip(" \t*_`")
-    if residue or any(token.casefold() in SUBJECT_EMBEDDERS for token in tokens):
+    if SUBJECT_TOKEN.sub("", cell).strip(" \t_`") or any(t.casefold() in EMBEDDERS for t in tokens):
         return False
     if len(tokens) == 2 and tokens[1].casefold() == "and":
         return True
-    if tokens and tokens[0].casefold() in SUBJECT_DETERMINERS:
+    if tokens and tokens[0].casefold() in DETERMINERS:
         tokens = tokens[1:]
-    if len(tokens) > 3:
+    return len(tokens) <= 3 and all(t.isdigit() or t.casefold() in ORDINALS or
+                                    t.casefold().endswith(MODIFIER_SUFFIXES) for t in tokens)
+
+
+def _noun_has_completion(text: str, match: re.Match[str], kind: str) -> bool:
+    sentence, prefix, suffix, start, end = _noun_context(text, match)
+    if _directly_excluded(sentence, start, end):
         return False
-    return all(
-        token.isdigit() or token.casefold() in SUBJECT_ORDINALS
-        or token.casefold().endswith(MODIFIER_SUFFIXES) for token in tokens
-    )
+    subject = _has_noun_subject(prefix)
+    if subject and any(token.casefold() in NOUN_HEDGES for token in SUBJECT_TOKEN.findall(prefix)):
+        return False
+    if kind == "process":
+        return subject and bool(PROCESS_SUFFIX.search(suffix))
+    if subject:
+        return bool((ACTOR_SUFFIX if kind == "actor" else ARTIFACT_SUFFIX).search(suffix))
+    passive = PASSIVE_PREFIX.search(prefix) or AGREEMENT_PREFIX.search(prefix)
+    return not MODAL.search(prefix) and bool(passive)
 
 
-def _actor_noun_has_completion(text: str, match: re.Match[str]) -> bool:
-    prefix, suffix = _noun_context(text, match)
-    if _has_noun_subject(prefix):
-        return bool(ACTOR_COMPLETION_SUFFIX.search(suffix))
-    return bool(not MODAL_SCOPE.search(prefix) and ACTOR_COMPLETION_PREFIX.search(prefix))
-
-
-def _artifact_noun_has_completion(text: str, match: re.Match[str]) -> bool:
-    prefix, suffix = _noun_context(text, match)
-    if _has_noun_subject(prefix):
-        return bool(ARTIFACT_RESULT_SUFFIX.search(suffix))
-    return bool(not MODAL_SCOPE.search(prefix) and ACTOR_COMPLETION_PREFIX.search(prefix))
-
-
-def _process_noun_has_completion(text: str, match: re.Match[str]) -> bool:
-    prefix, suffix = _noun_context(text, match)
-    return bool(_has_noun_subject(prefix) and PROCESS_COMPLETION_SUFFIX.search(suffix))
-
-
-def _normalized_phrase(match: re.Match[str]) -> str:
+def _normalized(match: re.Match[str]) -> str:
     return re.sub(r"\s+", " ", match.group(0).strip().casefold())
 
 
-def _affirmative_phrases(text: str) -> set[str]:
+def _affirmative_phrases(text: str, *, markdown: bool = True) -> set[str]:
     phrases: set[str] = set()
-    noun_rules = (
-        (ACTOR_NOUN_PATTERN, _actor_noun_has_completion),
-        (ARTIFACT_NOUN_PATTERN, _artifact_noun_has_completion),
-        (PROCESS_NOUN_PATTERN, _process_noun_has_completion),
-    )
-    for block in _markdown_blocks(text):
-        for pattern, completion_rule in noun_rules:
+    for block in prose_blocks(text, markdown=markdown):
+        for pattern, kind in ((ACTOR_NOUN, "actor"), (ARTIFACT_NOUN, "artifact"),
+                              (PROCESS_NOUN, "process")):
             for match in pattern.finditer(block):
-                if not _is_nonassertive(block, match) and completion_rule(block, match):
-                    phrases.add(_normalized_phrase(match))
-        for pattern in COMPLETED_ACTION_PATTERNS:
-            for match in pattern.finditer(block):
-                if not _is_nonassertive(block, match):
-                    phrases.add(_normalized_phrase(match))
+                if _noun_has_completion(block, match, kind):
+                    phrases.add(_normalized(match))
+        candidates = _action_candidates(block)
+        for candidate, excluded in zip(candidates, _action_exclusions(block, candidates)):
+            if not excluded:
+                phrases.add(candidate.phrase)
     return phrases
 
 
@@ -379,7 +303,7 @@ def _unstructured_identity_gaps(
         if content is None:
             continue
         matched: set[str] = set()
-        matched.update(_affirmative_phrases(content))
+        matched.update(_affirmative_phrases(content, markdown=path.suffix.lower() == ".md"))
         if matched:
             gaps.append(AdoptionGap(
                 "identity.unstructured_assertion", "identity_independence",

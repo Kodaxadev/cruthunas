@@ -15,7 +15,9 @@ INDEPENDENCE_ACTION = (
 )
 ASSERTION_PATTERNS = (
     re.compile(
-        r"\bindependent(?:\s+[A-Za-z0-9_+\-/]+){0,3}\s+"
+        r"\bindependent"
+        r"(?:\s+(?!(?:did|does|do|has|have|had|is|are|was|were|not|never)\b)"
+        r"[A-Za-z0-9_+\-/]+){0,3}\s+"
         r"(?:implementations?|verifiers?|reproductions?|reimplementations?|"
         r"certificates?|generators?|checks?|verification\s+frameworks?)\b",
         re.IGNORECASE,
@@ -33,15 +35,30 @@ ASSERTION_PATTERNS = (
     ),
 )
 CLAUSE_BOUNDARY = re.compile(r"[.!?;]|\bbut\b|\bhowever\b", re.IGNORECASE)
-NEGATING_CLAUSE = re.compile(
-    r"\b(?:(?:does|do|did|has|have|had|is|are|was|were)\s+not|"
-    r"no|not|never|without|cannot|can't|isn't|aren't|wasn't|weren't|"
-    r"hasn't|haven't|hadn't|doesn't|don't|didn't)\b",
+NEGATING_PREFIX = re.compile(
+    r"(?:\b(?:(?:does|do|did)\s+not|doesn't|don't|didn't|cannot|can't)\s+"
+    r"(?:establish|constitute|provide|demonstrate|claim)\b.*|"
+    r"\bno\b(?:\s+\w+){0,4}\s+"
+    r"(?:has|have|had|does|do|did|is|are|was|were)\s*|"
+    r"\b(?:is|are|was|were|has|have|had|does|do|did)\s+(?:not|never)"
+    r"(?:\s+(?:yet|still|be|been))*\s*|"
+    r"\b(?:no|not|never|without|cannot|can't|isn't|aren't|wasn't|weren't|"
+    r"hasn't|haven't|hadn't|doesn't|don't|didn't)"
+    r"(?:\s+(?:yet|still|be|been))*\s*)$",
     re.IGNORECASE,
 )
-REQUIREMENT_CLAUSE = re.compile(
-    r"\b(?:must|should|shall|will|would|could|can|may|might|needs?|needed|"
-    r"requires?|required|awaits?|awaiting|pending|planned|proposed)\b",
+GOVERNING_REQUIREMENT_PREFIX = re.compile(
+    r"(?:\b(?:must|should|shall|will|would|could|can|may|might)"
+    r"(?:\s+(?:not|still|be|have|been|to)){0,4}|"
+    r"\b(?:needs?|needed|requires?|required|awaits?|awaiting|pending|planned|"
+    r"proposed))\s*$",
+    re.IGNORECASE,
+)
+NEGATING_SUFFIX = re.compile(
+    r"^[\s,;:()\-\u2013\u2014]*(?:(?:however|nevertheless|in\s+fact)"
+    r"[\s,;:()\-\u2013\u2014]+)?(?:(?:is|are|was|were|has|have|had|does|do|did)"
+    r"\s+(?:not|never)|cannot|can't|isn't|aren't|wasn't|weren't|hasn't|"
+    r"haven't|hadn't|doesn't|don't|didn't)\b",
     re.IGNORECASE,
 )
 NONASSERTIVE_SUFFIX = re.compile(
@@ -58,8 +75,9 @@ def _is_nonassertive(line: str, match: re.Match[str]) -> bool:
     prefix = CLAUSE_BOUNDARY.split(line[: match.start()])[-1]
     suffix = line[match.end() : match.end() + 100]
     return bool(
-        NEGATING_CLAUSE.search(prefix)
-        or REQUIREMENT_CLAUSE.search(prefix)
+        NEGATING_PREFIX.search(prefix)
+        or GOVERNING_REQUIREMENT_PREFIX.search(prefix)
+        or NEGATING_SUFFIX.search(suffix)
         or NONASSERTIVE_SUFFIX.search(suffix)
     )
 
@@ -146,10 +164,14 @@ def _structured_identity_gaps(root: Path, evidence_files: list[Path]) -> list[Ad
     return gaps
 
 
-def _unstructured_identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
+def _unstructured_identity_gaps(
+    root: Path,
+    files: list[Path],
+    evidence_files: set[Path],
+) -> list[AdoptionGap]:
     gaps: list[AdoptionGap] = []
     for path in files:
-        if path.suffix.lower() not in TEXT_SUFFIXES:
+        if path in evidence_files or path.suffix.lower() not in TEXT_SUFFIXES:
             continue
         relative = str(path.relative_to(root)).replace("\\", "/")
         content = read_adoption_text(path)
@@ -179,6 +201,7 @@ def identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
         if evidence_root.is_dir()
         else []
     )
-    if evidence_files:
-        return _structured_identity_gaps(root, evidence_files)
-    return _unstructured_identity_gaps(root, files)
+    return [
+        *_structured_identity_gaps(root, evidence_files),
+        *_unstructured_identity_gaps(root, files, set(evidence_files)),
+    ]

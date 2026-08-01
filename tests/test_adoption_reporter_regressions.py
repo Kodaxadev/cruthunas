@@ -77,6 +77,18 @@ def test_simple_historical_ids_keep_lossless_punctuation_boundaries(tmp_path: Pa
             "An independent arbitrary-precision certificate covers the range.\n",
             "independent arbitrary-precision certificate",
         ),
+        (
+            "The required certificate was independently regenerated.\n",
+            "independently regenerated",
+        ),
+        (
+            "As required by policy, the certificate was independently regenerated.\n",
+            "independently regenerated",
+        ),
+        (
+            "The certificate was not required and was independently regenerated.\n",
+            "independently regenerated",
+        ),
     ],
 )
 def test_affirmative_independence_variants_are_reported(
@@ -101,6 +113,11 @@ def test_affirmative_independence_variants_are_reported(
         "This does not establish independent reproduction.\n",
         "No independent verifier checked the complete census.\n",
         "The certificate has never been independently recomputed.\n",
+        "Independent reproduction was not performed.\n",
+        "External review has not occurred.\n",
+        "An independent verifier did not check the census.\n",
+        "Independent reproduction, however, was not performed.\n",
+        "No human specialist has independently refereed the proofs.\n",
     ],
 )
 def test_negated_independence_language_is_not_reported(tmp_path: Path, text: str) -> None:
@@ -139,3 +156,20 @@ def test_ordinary_mathematical_independence_language_is_not_reported(
     _write_fixture(tmp_path, text)
 
     assert not _gaps(tmp_path, "identity.unstructured_assertion")
+
+
+def test_evidence_yaml_does_not_disable_unstructured_prose_scanning(tmp_path: Path) -> None:
+    evidence = tmp_path / "audit/evidence/placeholder.yaml"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("", encoding="utf-8")
+    result = tmp_path / "docs/result.md"
+    result.parent.mkdir(parents=True)
+    result.write_text(
+        "The certificate was independently regenerated.\n",
+        encoding="utf-8",
+    )
+
+    gaps = _gaps(tmp_path, "identity.unstructured_assertion")
+
+    assert len(gaps) == 1
+    assert gaps[0].path == "docs/result.md"

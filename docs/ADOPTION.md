@@ -89,7 +89,7 @@ The report is deterministic and read-only. It identifies:
 
 A gap marked `automatic` means the mechanical correction is deterministic. It does not authorize mutation. A `manual` gap requires a human decision or evidence that cannot be inferred from repository text.
 
-Punctuated historical IDs remain manual while the alias contract cannot represent them losslessly. Independence-language detection excludes explicit negation, requirement or future wording, questions, and ordinary mathematical uses such as “independently of `q`”; it reports prose assertions for provenance review and does not establish independence itself.
+Punctuated historical IDs remain manual while the alias contract cannot represent them losslessly. Independence-language detection excludes explicit negation, requirement or future wording that governs the independence action, questions, and ordinary mathematical uses such as “independently of `q`”; unrelated requirement wording does not suppress a completed assertion. Structured evidence checks and unstructured prose checks run together during partial migration. A prose finding requests provenance review and does not establish independence itself.
 
 ## Actor roles
 

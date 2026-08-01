@@ -141,6 +141,11 @@ def test_negated_independence_language_is_not_reported(tmp_path: Path, text: str
         "Independent reproduction is required before release.\n",
         "External review is pending.\n",
         "The verifier should independently recompute every row.\n",
+        "The result will soon be independently verified.\n",
+        "The result may already have been independently verified.\n",
+        "The result could conceivably have been independently verified.\n",
+        "The result should already have been independently checked.\n",
+        "The result will, after approval, be independently validated.\n",
     ],
 )
 def test_requirement_or_future_language_is_not_reported(tmp_path: Path, text: str) -> None:
@@ -217,6 +222,11 @@ def test_interrogative_or_uncertain_independence_language_is_not_reported(
         "The census may be checked by an independent verifier.\n",
         "The census is being checked by an independent verifier.\n",
         "The team hopes to be independently verified.\n",
+        "Independent reproduction was rejected before execution.\n",
+        "The independent verifier was approved for future work.\n",
+        "A plan for independent reproduction passed committee review.\n",
+        "The requirement for independent reproduction supports the proposal.\n",
+        "The concept of independent reproduction matches the policy.\n",
     ],
 )
 def test_noncompletion_independence_language_is_not_reported(
@@ -277,6 +287,46 @@ def test_noncompletion_independence_language_is_not_reported(
         ),
         (
             "Independent Python generators; matching trajectory digest.\n",
+            "independent python generators",
+        ),
+        (
+            "Independent verification was completed.\n",
+            "independent verification",
+        ),
+        (
+            "Independent audit concluded successfully.\n",
+            "independent audit",
+        ),
+        (
+            "Independent review was completed.\n",
+            "independent review",
+        ),
+        (
+            "Independent replication succeeded.\n",
+            "independent replication",
+        ),
+        (
+            "Independent validation was completed.\n",
+            "independent validation",
+        ),
+        (
+            "The independent verifier has now checked the census.\n",
+            "independent verifier",
+        ),
+        (
+            "The independent verifier actually checked the census.\n",
+            "independent verifier",
+        ),
+        (
+            "The independent verifier did check the census.\n",
+            "independent verifier",
+        ),
+        (
+            "The independent verifier eventually checked the census.\n",
+            "independent verifier",
+        ),
+        (
+            "| Result | Rust and independent Python generators agree. |\n",
             "independent python generators",
         ),
     ],

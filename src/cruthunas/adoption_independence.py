@@ -13,12 +13,19 @@ INDEPENDENCE_ACTION = (
     r"cross-?checked|checked|audited|reviewed|recomputed|validated|replicated|"
     r"confirmed|established|refereed|closed"
 )
-NOUN_ASSERTION_PATTERNS = (
+ACTOR_NOUN_PATTERNS = (
     re.compile(
         r"\bindependent"
         r"(?:\s+[A-Za-z0-9_+\-/]+){0,3}?\s+"
-        r"(?:implementations?|verifiers?|reproductions?|reimplementations?|"
-        r"certificates?|generators?|checks?|verification\s+frameworks?)\b",
+        r"(?:implementations?|verifiers?|certificates?|generators?|"
+        r"verification\s+frameworks?)\b",
+        re.IGNORECASE,
+    ),
+)
+PROCESS_NOUN_PATTERNS = (
+    re.compile(
+        r"\bindependent\s+(?:audits?|checks?|reimplementations?|replications?|"
+        r"reproductions?|reviews?|validations?|verifications?)\b",
         re.IGNORECASE,
     ),
     re.compile(r"\bexternal\s+reviews?\b", re.IGNORECASE),
@@ -112,29 +119,57 @@ PROGRESSIVE_PREFIX = re.compile(
     re.IGNORECASE,
 )
 INFINITIVE_PASSIVE_PREFIX = re.compile(r"\bto\s+be\s*$", re.IGNORECASE)
-COMPLETION_PREDICATE = (
-    r"agrees?|agreed|approves?|approved|checks?|checked|completes?|completed|"
-    r"concludes?|concluded|confirms?|confirmed|covers?|covered|cross-?checks?|"
-    r"cross-?checked|establishes?|established|finishes?|finished|matches?|"
-    r"matched|matching|passes?|passed|performs?|performed|rejects?|rejected|"
-    r"reproduces?|reproduced|succeeds?|succeeded|supports?|supported|validates?|"
-    r"validated|verifies?|verified"
-)
-COMPLETION_AUXILIARY = (
-    r"(?:(?:has|have|had)\s+(?:been\s+)?|(?:is|are|was|were)\s+)"
-)
-COMPLETION_MODIFIERS = r"(?:(?:also|fully|independently|successfully)\s+)*"
-NOUN_COMPLETION_SUFFIX = re.compile(
-    rf"^[\s,;:()\-\u2013\u2014]*"
-    rf"(?:{COMPLETION_AUXILIARY})?{COMPLETION_MODIFIERS}"
-    rf"(?:{COMPLETION_PREDICATE})\b",
+MODAL_CHAIN_PREFIX = re.compile(
+    r"\b(?:can|could|may|might|must|shall|should|will|would)\b"
+    r"[\s\S]{0,96}\b(?:be|been|have)\s*$",
     re.IGNORECASE,
 )
-NOUN_COMPLETION_PREFIX = re.compile(
-    rf"(?:\b{COMPLETION_AUXILIARY}{COMPLETION_MODIFIERS}"
-    rf"(?:{COMPLETION_PREDICATE})\s+(?:against|by|using|with)\s+"
+MODAL_SCOPE = re.compile(
+    r"\b(?:can|could|may|might|must|shall|should|will|would)\b[\s\S]{0,120}$",
+    re.IGNORECASE,
+)
+COMPLETION_MODIFIER = (
+    r"actually|already|also|eventually|fully|independently|now|separately|"
+    r"successfully"
+)
+COMPLETION_MODIFIERS = rf"(?:(?:{COMPLETION_MODIFIER})\s+)*"
+AGENT_BASE_ACTION = (
+    r"audit|check|close|confirm|cross-?check|establish|implement|recompute|"
+    r"referee|regenerate|reimplement|reject|replicate|reproduce|review|validate|"
+    r"verify"
+)
+AGENT_PAST_ACTION = rf"(?:{INDEPENDENCE_ACTION}|rejected)"
+AGENT_RESULT = r"agrees?|agreed|covers?|covered|matches?|matched|matching"
+ACTOR_COMPLETION_SUFFIX = re.compile(
+    rf"^[\s,;:()\-\u2013\u2014]*(?:"
+    rf"(?:has|have|had)\s+{COMPLETION_MODIFIERS}{AGENT_PAST_ACTION}|"
+    rf"did\s+{COMPLETION_MODIFIERS}(?:{AGENT_BASE_ACTION})|"
+    rf"{COMPLETION_MODIFIERS}(?:{AGENT_PAST_ACTION}|{AGENT_RESULT}))\b",
+    re.IGNORECASE,
+)
+ACTOR_COMPLETION_PREFIX = re.compile(
+    rf"(?:\b(?:(?:has|have|had)\s+been|(?:is|are|was|were))\s+"
+    rf"{COMPLETION_MODIFIERS}(?:{INDEPENDENCE_ACTION}|supported)\s+"
+    r"(?:against|by|using|with)\s+"
     r"(?:(?:an?|the|\d+)\s+)?|"
     r"\bagreement\s+with\s+(?:(?:an?|the)\s+)?)$",
+    re.IGNORECASE,
+)
+PROCESS_COMPLETION_SUFFIX = re.compile(
+    rf"^[\s,;:()\-\u2013\u2014]*(?:"
+    rf"(?:has|have|had)\s+(?:been\s+)?{COMPLETION_MODIFIERS}"
+    r"(?:completed|concluded|finished|performed|succeeded)|"
+    rf"(?:is|are|was|were)\s+{COMPLETION_MODIFIERS}"
+    r"(?:complete|completed|concluded|finished|performed|successful)|"
+    rf"{COMPLETION_MODIFIERS}(?:completed|concluded|finished|performed|"
+    r"succeeded))\b",
+    re.IGNORECASE,
+)
+NOUN_SUBJECT_PREFIX = re.compile(
+    r"^\s*(?:[-*+>]\s+|#+\s*)?"
+    r"(?:(?:an?|all|both|each|every|that|the|these|this|those)\s+)?"
+    r"(?:(?:\d+|eight|five|four|nine|one|seven|six|ten|three|two)\s+)?"
+    r"(?:[A-Za-z0-9_+\-/]+\s+and\s+)?$",
     re.IGNORECASE,
 )
 
@@ -178,16 +213,36 @@ def _is_nonassertive(text: str, match: re.Match[str]) -> bool:
         or NONASSERTIVE_SUFFIX.search(suffix)
         or PROGRESSIVE_PREFIX.search(prefix)
         or INFINITIVE_PASSIVE_PREFIX.search(prefix)
+        or MODAL_CHAIN_PREFIX.search(prefix)
     )
 
 
-def _noun_has_completion(text: str, match: re.Match[str]) -> bool:
+def _noun_context(text: str, match: re.Match[str]) -> tuple[str, str]:
     sentence, match_start, match_end = _sentence_context(text, match)
     prefix = _clause_prefix(sentence, match_start)
     suffix = sentence[match_end : match_end + 120]
+    return prefix, suffix
+
+
+def _has_noun_subject(prefix: str) -> bool:
+    markdown_cell_prefix = prefix.rsplit("|", 1)[-1]
+    return bool(NOUN_SUBJECT_PREFIX.fullmatch(markdown_cell_prefix))
+
+
+def _actor_noun_has_completion(text: str, match: re.Match[str]) -> bool:
+    prefix, suffix = _noun_context(text, match)
+    if _has_noun_subject(prefix):
+        return bool(ACTOR_COMPLETION_SUFFIX.search(suffix))
     return bool(
-        NOUN_COMPLETION_PREFIX.search(prefix)
-        or NOUN_COMPLETION_SUFFIX.search(suffix)
+        not MODAL_SCOPE.search(prefix) and ACTOR_COMPLETION_PREFIX.search(prefix)
+    )
+
+
+def _process_noun_has_completion(text: str, match: re.Match[str]) -> bool:
+    prefix, suffix = _noun_context(text, match)
+    return bool(
+        _has_noun_subject(prefix)
+        and PROCESS_COMPLETION_SUFFIX.search(suffix)
     )
 
 
@@ -197,9 +252,18 @@ def _normalized_phrase(match: re.Match[str]) -> str:
 
 def _affirmative_phrases(text: str) -> set[str]:
     phrases: set[str] = set()
-    for pattern in NOUN_ASSERTION_PATTERNS:
+    for pattern in ACTOR_NOUN_PATTERNS:
         for match in pattern.finditer(text):
-            if _is_nonassertive(text, match) or not _noun_has_completion(text, match):
+            if _is_nonassertive(text, match) or not _actor_noun_has_completion(
+                text, match
+            ):
+                continue
+            phrases.add(_normalized_phrase(match))
+    for pattern in PROCESS_NOUN_PATTERNS:
+        for match in pattern.finditer(text):
+            if _is_nonassertive(text, match) or not _process_noun_has_completion(
+                text, match
+            ):
                 continue
             phrases.add(_normalized_phrase(match))
     for pattern in COMPLETED_ACTION_PATTERNS:

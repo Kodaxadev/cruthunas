@@ -57,46 +57,18 @@ def test_simple_historical_ids_keep_lossless_punctuation_boundaries(tmp_path: Pa
 @pytest.mark.parametrize(
     "text, expected_phrase",
     [
-        (
-            "The certificate is independently regenerated and checked.\n",
-            "independently regenerated",
-        ),
-        (
-            "The certificate was independently—recomputed against the source.\n",
-            "independently—recomputed",
-        ),
-        (
-            "Three independent implementations agree on every row.\n",
-            "independent implementations",
-        ),
-        (
-            "All rows were re-verified independently in u128.\n",
-            "re-verified independently",
-        ),
-        (
-            "An independent arbitrary-precision certificate covers the range.\n",
-            "independent arbitrary-precision certificate",
-        ),
-        (
-            "The required certificate was independently regenerated.\n",
-            "independently regenerated",
-        ),
-        (
-            "As required by policy, the certificate was independently regenerated.\n",
-            "independently regenerated",
-        ),
-        (
-            "The certificate was not required and was independently regenerated.\n",
-            "independently regenerated",
-        ),
-        (
-            "The certificate was independently regenerated. Was the process documented?\n",
-            "independently regenerated",
-        ),
-        (
-            "The certificate was independently regenerated; was the process documented?\n",
-            "independently regenerated",
-        ),
+        ("The certificate is independently regenerated and checked.\n", "independently regenerated"),
+        ("The certificate was independently—recomputed against the source.\n", "independently—recomputed"),
+        ("Three independent implementations agree on every row.\n", "independent implementations"),
+        ("All rows were re-verified independently in u128.\n", "re-verified independently"),
+        ("An independent arbitrary-precision certificate covers the range.\n", "independent arbitrary-precision certificate"),
+        ("The required certificate was independently regenerated.\n", "independently regenerated"),
+        ("As required by policy, the certificate was independently regenerated.\n", "independently regenerated"),
+        ("The certificate was not required and was independently regenerated.\n", "independently regenerated"),
+        ("The certificate was independently regenerated. Was the process documented?\n", "independently regenerated"),
+        ("The certificate was independently regenerated; was the process documented?\n", "independently regenerated"),
+        ("Although probably unnecessary, the certificate was independently verified.\n", "independently verified"),
+        ("The estimate was probably correct, but the certificate was independently verified.\n", "independently verified"),
     ],
 )
 def test_affirmative_independence_variants_are_reported(
@@ -178,6 +150,23 @@ def test_question_local_independence_language_is_not_reported(
         "Whether the certificate was independently regenerated remains unknown.\n",
         "We do not know whether the certificate was independently regenerated.\n",
         "It is unclear whether the certificate was independently regenerated.\n",
+        "The result appears to have been independently verified.\n",
+        "The result seems to have been independently verified.\n",
+        "The result was allegedly independently verified.\n",
+        "The result was reportedly independently verified.\n",
+        "The result was probably independently verified.\n",
+        "The result was possibly independently verified.\n",
+        "The result was apparently independently verified.\n",
+        "The result was purportedly independently verified.\n",
+        "The result was supposedly independently verified.\n",
+        "The result is likely to have been independently verified.\n",
+        "The result is said to have been independently verified.\n",
+        "The result is believed to have been independently verified.\n",
+        "It is alleged that the result was independently verified.\n",
+        "The proof appears to have been approved by an independent verifier.\n",
+        "The proof was allegedly approved by an independent reviewer.\n",
+        "Independent review reportedly confirmed the proof.\n",
+        "The independent reviewer reportedly checked the proof.\n",
     ],
 )
 def test_interrogative_or_uncertain_independence_language_is_not_reported(
@@ -227,6 +216,10 @@ def test_interrogative_or_uncertain_independence_language_is_not_reported(
         "A plan for independent reproduction passed committee review.\n",
         "The requirement for independent reproduction supports the proposal.\n",
         "The concept of independent reproduction matches the policy.\n",
+        "A completed plan for independent verification was approved.\n",
+        "The requirement for independent review was completed.\n",
+        "The concept of independent audit was confirmed.\n",
+        "The proposal for independent validation was approved.\n",
     ],
 )
 def test_noncompletion_independence_language_is_not_reported(
@@ -241,94 +234,44 @@ def test_noncompletion_independence_language_is_not_reported(
 @pytest.mark.parametrize(
     "text, expected_phrase",
     [
-        (
-            "The result was independently reproduced as required.\n",
-            "independently reproduced",
-        ),
-        (
-            "Independent reproduction was completed.\n",
-            "independent reproduction",
-        ),
-        (
-            "The independent verifier successfully checked the census.\n",
-            "independent verifier",
-        ),
-        (
-            "The independent verifier checked the census.\n",
-            "independent verifier",
-        ),
-        (
-            "External review concluded successfully.\n",
-            "external review",
-        ),
-        (
-            "The certificate was independently regenerated.\n",
-            "independently regenerated",
-        ),
-        (
-            "The verifier independently checked the census.\n",
-            "independently checked",
-        ),
-        (
-            "The verifier has independently checked the census.\n",
-            "independently checked",
-        ),
-        (
-            "The census was checked by an independent verifier.\n",
-            "independent verifier",
-        ),
-        (
-            "The generator was cross-checked against the independent implementation.\n",
-            "independent implementation",
-        ),
-        (
-            "The independent verifier\nrejected both rows.\n",
-            "independent verifier",
-        ),
-        (
-            "Independent Python generators; matching trajectory digest.\n",
-            "independent python generators",
-        ),
-        (
-            "Independent verification was completed.\n",
-            "independent verification",
-        ),
-        (
-            "Independent audit concluded successfully.\n",
-            "independent audit",
-        ),
-        (
-            "Independent review was completed.\n",
-            "independent review",
-        ),
-        (
-            "Independent replication succeeded.\n",
-            "independent replication",
-        ),
-        (
-            "Independent validation was completed.\n",
-            "independent validation",
-        ),
-        (
-            "The independent verifier has now checked the census.\n",
-            "independent verifier",
-        ),
-        (
-            "The independent verifier actually checked the census.\n",
-            "independent verifier",
-        ),
-        (
-            "The independent verifier did check the census.\n",
-            "independent verifier",
-        ),
-        (
-            "The independent verifier eventually checked the census.\n",
-            "independent verifier",
-        ),
-        (
-            "| Result | Rust and independent Python generators agree. |\n",
-            "independent python generators",
-        ),
+        ("The result was independently reproduced as required.\n", "independently reproduced"),
+        ("Independent reproduction was completed.\n", "independent reproduction"),
+        ("The independent verifier successfully checked the census.\n", "independent verifier"),
+        ("The independent verifier checked the census.\n", "independent verifier"),
+        ("External review concluded successfully.\n", "external review"),
+        ("The certificate was independently regenerated.\n", "independently regenerated"),
+        ("The verifier independently checked the census.\n", "independently checked"),
+        ("The verifier has independently checked the census.\n", "independently checked"),
+        ("The census was checked by an independent verifier.\n", "independent verifier"),
+        ("The generator was cross-checked against the independent implementation.\n", "independent implementation"),
+        ("The independent verifier\nrejected both rows.\n", "independent verifier"),
+        ("Independent Python generators; matching trajectory digest.\n", "independent python generators"),
+        ("Independent verification was completed.\n", "independent verification"),
+        ("Independent audit concluded successfully.\n", "independent audit"),
+        ("Independent review was completed.\n", "independent review"),
+        ("Independent replication succeeded.\n", "independent replication"),
+        ("Independent validation was completed.\n", "independent validation"),
+        ("The independent verifier has now checked the census.\n", "independent verifier"),
+        ("The independent verifier actually checked the census.\n", "independent verifier"),
+        ("The independent verifier did check the census.\n", "independent verifier"),
+        ("The independent verifier eventually checked the census.\n", "independent verifier"),
+        ("| Result | Rust and independent Python generators agree. |\n", "independent python generators"),
+        ("A documented independent verification was completed.\n", "independent verification"),
+        ("A formal independent review concluded successfully.\n", "independent review"),
+        ("The second independent verification was completed.\n", "independent verification"),
+        ("An independent external audit was completed.\n", "independent external audit"),
+        ("Independent review confirmed the proof.\n", "independent review"),
+        ("Independent verification found no issues.\n", "independent verification"),
+        ("The independent verifier found no issues.\n", "independent verifier"),
+        ("The independent reviewer checked the proof.\n", "independent reviewer"),
+        ("The independent auditor confirmed the result.\n", "independent auditor"),
+        ("The proof was approved by an independent verifier.\n", "independent verifier"),
+        ("The independent validator approved the certificate.\n", "independent validator"),
+        ("Although probably unnecessary, the proof was approved by an independent verifier.\n", "independent verifier"),
+        ("The proof was approved by a formal independent reviewer.\n", "independent reviewer"),
+        ("A highly documented independent verification was completed.\n", "independent verification"),
+        ("Independent review approved the proof.\n", "independent review"),
+        ("The independent auditor found no issues.\n", "independent auditor"),
     ],
 )
 def test_completed_independence_controls_are_reported(

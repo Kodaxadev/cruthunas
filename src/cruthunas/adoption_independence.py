@@ -34,18 +34,11 @@ PROCESS_NOUN_PATTERN = _ci(
     r"(?:audits?|checks?|reimplementations?|replications?|reproductions?|"
     r"reviews?|validations?|verifications?)\b|\bexternal\s+reviews?\b)",
 )
-COMPLETED_ACTION_PATTERNS = (
-    re.compile(
-        rf"\bindependently(?:[\s,;:()\-\u2013\u2014]+)(?:{INDEPENDENCE_ACTION})\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"\b(?:{INDEPENDENCE_ACTION})\b"
-        r"(?:[\s,;:()\-\u2013\u2014]+[A-Za-z0-9_+\-/]+){0,4}"
-        r"[\s,;:()\-\u2013\u2014]+independently\b",
-        re.IGNORECASE,
-    ),
-)
+ACTION_SEPARATOR = r"[\s,;:()\-\u2013\u2014]+"
+FORWARD_ACTION_PATTERN = _ci(rf"\bindependently{ACTION_SEPARATOR}(?:{INDEPENDENCE_ACTION})\b")
+REVERSE_ACTION_PATTERN = _ci(rf"\b(?:{INDEPENDENCE_ACTION})\b\s+independently\b")
+COMPLETED_ACTION_PATTERNS = (FORWARD_ACTION_PATTERN, REVERSE_ACTION_PATTERN)
+COORDINATOR = _ci(r"^\s*(?:,|,?\s*(?:and|or))\s*$")
 SENTENCE_BOUNDARY = re.compile(r"[.!?](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
 CLAUSE_TERMINATOR = re.compile(r"[.!?;](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
 CLAUSE_BOUNDARY = _ci(r"[.!?;]|,\s+(?:and|but)\b|\bbut\b|\bhowever\b")
@@ -65,6 +58,9 @@ UNCERTAINTY_PREFIX = _ci(
 EPISTEMIC_PREFIX = _ci(
     rf"(?:\b(?:allegedly|apparently|possibly|probably|purportedly|reportedly|"
     rf"supposedly)(?:\s+{ATTRIBUTION_TAIL})?\s*|"
+    r"\b(?:alleged|apparent|possible|probable|purported|reported|supposed)\s*$|"
+    r"\b(?:allege(?:d|s)?|believe(?:d|s)?|claim(?:ed|s)?|report(?:ed|s)?|"
+    r"say|says|said|suggest(?:ed|s)?)\b(?:\s+that)?[\s\S]{0,96}$|"
     r"\b(?:appear(?:s|ed)?|seem(?:s|ed)?)\b[\s\S]{0,80}"
     rf"\bto\s+have\s+been(?:\s+{ATTRIBUTION_TAIL})?\s*|"
     r"\b(?:is|are|was|were)\s+(?:very\s+)?(?:believed|likely|said)\b"
@@ -121,6 +117,8 @@ NONASSERTIVE_SUFFIX = _ci(
     r"(?:still\s+)?(?:required|needed|pending|awaiting|planned|proposed|"
     r"must|should|shall|will|would|could|can|may|might)\b",
 )
+EPISTEMIC_SUFFIX = _ci(r"^[\s,;:()\-\u2013\u2014]+(?:allegedly|apparently|possibly|"
+                        r"probably|purportedly|reportedly|supposedly)\b")
 PROGRESSIVE_PREFIX = _ci(r"\b(?:is|are|was|were)\s+being\s*$")
 INFINITIVE_PASSIVE_PREFIX = re.compile(r"\bto\s+be\s*$", re.IGNORECASE)
 MODAL_CHAIN_PREFIX = _ci(
@@ -172,6 +170,8 @@ SUBJECT_DETERMINERS = {
 SUBJECT_ORDINALS = {"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"}
 SUBJECT_EMBEDDERS = {"about", "concerning", "for", "of", "regarding", "toward", "towards"}
 MODIFIER_SUFFIXES = ("al", "ary", "ed", "ent", "ic", "ical", "ive", "ory", "ous", "ly")
+MARKDOWN_BLOCK_START = re.compile(r"^\s{0,3}(?:#{1,6}(?:\s|$)|(?:[-+*]|\d+[.)])\s+|(?:`{3}|~{3})|\|)")
+MARKDOWN_STANDALONE = re.compile(r"^\s{0,3}(?:#{1,6}(?:\s|$)|(?:[-*_]\s*){3,}$|=+\s*$|(?:`{3}|~{3}))")
 
 
 def _sentence_context(text: str, match: re.Match[str]) -> tuple[str, int, int]:
@@ -198,13 +198,12 @@ def _is_question_context(sentence: str, match_start: int, match_end: int) -> boo
     return terminator is not None and terminator.group(0) == "?"
 
 
-def _is_nonassertive(text: str, match: re.Match[str]) -> bool:
-    sentence, match_start, match_end = _sentence_context(text, match)
+def _is_nonassertive_context(sentence: str, match_start: int, match_end: int) -> bool:
     if _is_question_context(sentence, match_start, match_end):
         return True
     prefix = _clause_prefix(sentence, match_start)
     suffix = sentence[match_end : match_end + 100]
-    return bool(
+    if (
         NEGATING_PREFIX.search(prefix)
         or EPISTEMIC_PREFIX.search(prefix)
         or GOVERNING_REQUIREMENT_PREFIX.search(prefix)
@@ -212,10 +211,43 @@ def _is_nonassertive(text: str, match: re.Match[str]) -> bool:
         or NEGATING_SUFFIX.search(suffix)
         or NONCOMPLETION_SUFFIX.search(suffix)
         or NONASSERTIVE_SUFFIX.search(suffix)
+        or EPISTEMIC_SUFFIX.search(suffix)
         or PROGRESSIVE_PREFIX.search(prefix)
         or INFINITIVE_PASSIVE_PREFIX.search(prefix)
         or MODAL_CHAIN_PREFIX.search(prefix)
-    )
+    ):
+        return True
+    priors = [match for pattern in COMPLETED_ACTION_PATTERNS
+              for match in pattern.finditer(sentence, 0, match_start)]
+    for prior in sorted(priors, key=lambda item: item.start(), reverse=True):
+        if COORDINATOR.fullmatch(sentence[prior.end() : match_start]):
+            return _is_nonassertive_context(sentence, prior.start(), prior.end())
+    return False
+
+
+def _is_nonassertive(text: str, match: re.Match[str]) -> bool:
+    sentence, match_start, match_end = _sentence_context(text, match)
+    return _is_nonassertive_context(sentence, match_start, match_end)
+
+
+def _markdown_blocks(text: str) -> list[str]:
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines(keepends=True):
+        starts_block = MARKDOWN_BLOCK_START.match(line)
+        if not line.strip() or starts_block:
+            if current:
+                blocks.append("".join(current))
+                current = []
+            if not line.strip():
+                continue
+        current.append(line)
+        if MARKDOWN_STANDALONE.match(line):
+            blocks.append("".join(current))
+            current = []
+    if current:
+        blocks.append("".join(current))
+    return blocks
 
 
 def _noun_context(text: str, match: re.Match[str]) -> tuple[str, str]:
@@ -274,16 +306,15 @@ def _affirmative_phrases(text: str) -> set[str]:
         (ARTIFACT_NOUN_PATTERN, _artifact_noun_has_completion),
         (PROCESS_NOUN_PATTERN, _process_noun_has_completion),
     )
-    for pattern, completion_rule in noun_rules:
-        for match in pattern.finditer(text):
-            if _is_nonassertive(text, match) or not completion_rule(text, match):
-                continue
-            phrases.add(_normalized_phrase(match))
-    for pattern in COMPLETED_ACTION_PATTERNS:
-        for match in pattern.finditer(text):
-            if _is_nonassertive(text, match):
-                continue
-            phrases.add(_normalized_phrase(match))
+    for block in _markdown_blocks(text):
+        for pattern, completion_rule in noun_rules:
+            for match in pattern.finditer(block):
+                if not _is_nonassertive(block, match) and completion_rule(block, match):
+                    phrases.add(_normalized_phrase(match))
+        for pattern in COMPLETED_ACTION_PATTERNS:
+            for match in pattern.finditer(block):
+                if not _is_nonassertive(block, match):
+                    phrases.add(_normalized_phrase(match))
     return phrases
 
 
@@ -294,67 +325,43 @@ def _structured_identity_gaps(root: Path, evidence_files: list[Path]) -> list[Ad
         try:
             record = read_yaml(path)
         except Exception as exc:
-            gaps.append(
-                AdoptionGap(
-                    "record.unparseable",
-                    "manual_migration",
-                    f"Evidence record cannot be parsed automatically: {exc}",
-                    relative,
-                    False,
-                )
-            )
+            gaps.append(AdoptionGap(
+                "record.unparseable", "manual_migration",
+                f"Evidence record cannot be parsed automatically: {exc}", relative, False,
+            ))
             continue
         if not isinstance(record, dict):
             continue
         creator = record.get("created_by")
         if not isinstance(creator, dict) or not creator.get("type") or not creator.get("id"):
-            gaps.append(
-                AdoptionGap(
-                    "identity.creator_missing",
-                    "identity_independence",
-                    "Evidence record lacks durable creator type and identity",
-                    relative,
-                    False,
-                )
-            )
+            gaps.append(AdoptionGap(
+                "identity.creator_missing", "identity_independence",
+                "Evidence record lacks durable creator type and identity", relative, False,
+            ))
         evidence_class = record.get("class")
         details = record.get("details")
         if evidence_class in {"REPRODUCTION", "REVIEW_EXTERNAL"}:
             required = set(INDEPENDENCE_KEYS)
             if not isinstance(details, dict) or not required.issubset(details):
                 label = "Reproduction" if evidence_class == "REPRODUCTION" else "External review"
-                gaps.append(
-                    AdoptionGap(
-                        "independence.metadata_missing",
-                        "identity_independence",
-                        f"{label} record lacks the complete structured identity and independence boundary",
-                        relative,
-                        False,
-                        {"required_keys": sorted(required)},
-                    )
-                )
+                gaps.append(AdoptionGap(
+                    "independence.metadata_missing", "identity_independence",
+                    f"{label} record lacks the complete structured identity and independence boundary",
+                    relative, False, {"required_keys": sorted(required)},
+                ))
         if evidence_class == "REPRODUCTION" and isinstance(creator, dict) and creator.get("type") == "agent":
-            gaps.append(
-                AdoptionGap(
-                    "independence.agent_creator",
-                    "identity_independence",
-                    "Agent-created reproduction evidence records provenance but cannot establish independent reproduction",
-                    relative,
-                    False,
-                )
-            )
+            gaps.append(AdoptionGap(
+                "independence.agent_creator", "identity_independence",
+                "Agent-created reproduction evidence records provenance but cannot establish independent reproduction",
+                relative, False,
+            ))
         if evidence_class == "REVIEW_EXTERNAL":
             reviewer = record.get("reviewer")
             if not isinstance(reviewer, dict) or reviewer.get("type") not in {"human", "venue"} or not reviewer.get("id"):
-                gaps.append(
-                    AdoptionGap(
-                        "identity.external_reviewer_missing",
-                        "identity_independence",
-                        "External review record lacks a named human reviewer or venue",
-                        relative,
-                        False,
-                    )
-                )
+                gaps.append(AdoptionGap(
+                    "identity.external_reviewer_missing", "identity_independence",
+                    "External review record lacks a named human reviewer or venue", relative, False,
+                ))
     return gaps
 
 
@@ -374,24 +381,18 @@ def _unstructured_identity_gaps(
         matched: set[str] = set()
         matched.update(_affirmative_phrases(content))
         if matched:
-            gaps.append(
-                AdoptionGap(
-                    "identity.unstructured_assertion",
-                    "identity_independence",
-                    "Affirmative independence or external-review language exists without governed identity metadata",
-                    relative,
-                    False,
-                    {"phrases": sorted(matched)},
-                )
-            )
+            gaps.append(AdoptionGap(
+                "identity.unstructured_assertion", "identity_independence",
+                "Affirmative independence or external-review language exists without governed identity metadata",
+                relative, False, {"phrases": sorted(matched)},
+            ))
     return gaps
 
 
 def identity_gaps(root: Path, files: list[Path]) -> list[AdoptionGap]:
     evidence_root = root / "audit/evidence"
-    evidence_files = sorted(
-        [*evidence_root.rglob("*.yaml"), *evidence_root.rglob("*.yml")]
-    ) if evidence_root.is_dir() else []
+    evidence_files = sorted([*evidence_root.rglob("*.yaml"), *evidence_root.rglob("*.yml")]
+                            ) if evidence_root.is_dir() else []
     return [
         *_structured_identity_gaps(root, evidence_files),
         *_unstructured_identity_gaps(root, files, set(evidence_files)),

@@ -181,6 +181,49 @@ def test_interrogative_or_uncertain_independence_language_is_not_reported(
 @pytest.mark.parametrize(
     "text",
     [
+        "The result was not independently verified or independently reproduced.\n",
+        "The result may have been independently verified and independently reproduced.\n",
+        "The result was reportedly independently verified and independently reproduced.\n",
+        "The result appears to have been independently verified and independently reproduced.\n",
+        "The result was not verified independently or reproduced independently.\n",
+        "The certificate was verified and independently scheduled for review.\n",
+        "The certificate was verified, independently scheduled for review.\n",
+        "The result may have been independently verified, independently reproduced, and independently checked.\n",
+        "The authors said the result was independently verified.\n",
+        "The authors believed the result was independently verified.\n",
+        "The result was independently verified, reportedly.\n",
+        "An alleged independent review was completed.\n",
+    ],
+)
+def test_coordinated_or_attributed_nonassertions_are_not_reported(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    _write_fixture(tmp_path, text)
+
+    assert not _gaps(tmp_path, "identity.unstructured_assertion")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "## Independent review\nCompleted tasks are listed below.\n",
+        "## Independent reviewer\nChecked items are listed below.\n",
+        "Independent review\n\nwas completed.\n",
+    ],
+)
+def test_markdown_blocks_terminate_predicate_attribution(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    _write_fixture(tmp_path, text)
+
+    assert not _gaps(tmp_path, "identity.unstructured_assertion")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "Independent reproduction is yet to be performed.\n",
         "External review has yet to occur.\n",
         "External review remains outstanding.\n",
@@ -272,6 +315,11 @@ def test_noncompletion_independence_language_is_not_reported(
         ("A highly documented independent verification was completed.\n", "independent verification"),
         ("Independent review approved the proof.\n", "independent review"),
         ("The independent auditor found no issues.\n", "independent auditor"),
+        ("The result was independently verified and independently reproduced.\n", "independently reproduced"),
+        ("The result was verified independently and reproduced independently.\n", "reproduced independently"),
+        ("The result was independently verified, independently reproduced, and independently checked.\n", "independently checked"),
+        ("The result was independently\nverified.\n", "independently verified"),
+        ("Independent review\nwas completed.\n", "independent review"),
     ],
 )
 def test_completed_independence_controls_are_reported(
@@ -286,6 +334,20 @@ def test_completed_independence_controls_are_reported(
     assert len(gaps) == 1
     assert gaps[0].details is not None
     assert expected_phrase in gaps[0].details["phrases"]
+
+
+def test_neighboring_markdown_block_does_not_hide_an_affirmative_action(
+    tmp_path: Path,
+) -> None:
+    _write_fixture(
+        tmp_path,
+        "## Independent review\n\nThe certificate was independently verified.\n",
+    )
+
+    gaps = _gaps(tmp_path, "identity.unstructured_assertion")
+
+    assert len(gaps) == 1
+    assert gaps[0].details == {"phrases": ["independently verified"]}
 
 
 @pytest.mark.parametrize(

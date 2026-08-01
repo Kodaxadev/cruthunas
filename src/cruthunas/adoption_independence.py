@@ -16,7 +16,9 @@ INDEPENDENCE_ACTION = (
 ASSERTION_PATTERNS = (
     re.compile(
         r"\bindependent"
-        r"(?:\s+(?!(?:did|does|do|has|have|had|is|are|was|were|not|never)\b)"
+        r"(?:\s+(?!(?:did|does|do|has|have|had|is|are|was|were|not|never|"
+        r"failed|fails|unable|expected|intended|scheduled|attempted|yet|"
+        r"outstanding|unsuccessfully)\b)"
         r"[A-Za-z0-9_+\-/]+){0,3}\s+"
         r"(?:implementations?|verifiers?|reproductions?|reimplementations?|"
         r"certificates?|generators?|checks?|verification\s+frameworks?)\b",
@@ -54,11 +56,28 @@ GOVERNING_REQUIREMENT_PREFIX = re.compile(
     r"proposed))\s*$",
     re.IGNORECASE,
 )
+NONCOMPLETION_PREFIX = re.compile(
+    r"(?:\bno\s+(?:evidence|record|documentation|proof)\s+of\s*|"
+    r"\b(?:(?:is|are|was|were)\s+)?(?:failed|unable|expected|intended|"
+    r"scheduled|planned|attempted)\s+(?:to\s+be|to)\s*)$",
+    re.IGNORECASE,
+)
 NEGATING_SUFFIX = re.compile(
     r"^[\s,;:()\-\u2013\u2014]*(?:(?:however|nevertheless|in\s+fact)"
     r"[\s,;:()\-\u2013\u2014]+)?(?:(?:is|are|was|were|has|have|had|does|do|did)"
     r"\s+(?:not|never)|cannot|can't|isn't|aren't|wasn't|weren't|hasn't|"
     r"haven't|hadn't|doesn't|don't|didn't)\b",
+    re.IGNORECASE,
+)
+NONCOMPLETION_SUFFIX = re.compile(
+    r"^[\s,;:()\-\u2013\u2014]*(?:(?:however|nevertheless|in\s+fact)"
+    r"[\s,;:()\-\u2013\u2014]+)?(?:"
+    r"(?:is|are|was|were|has|have|had)\s+yet\s+to\b|"
+    r"remains?\s+(?:outstanding|unfinished|incomplete|unperformed)\b|"
+    r"(?:(?:is|are|was|were)\s+)?(?:failed|unable)\s+to\b|"
+    r"unsuccessfully\b|"
+    r"(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+attempted\b"
+    r".*\bbut\s+(?:failed|did\s+not\s+succeed)\b)",
     re.IGNORECASE,
 )
 NONASSERTIVE_SUFFIX = re.compile(
@@ -77,7 +96,9 @@ def _is_nonassertive(line: str, match: re.Match[str]) -> bool:
     return bool(
         NEGATING_PREFIX.search(prefix)
         or GOVERNING_REQUIREMENT_PREFIX.search(prefix)
+        or NONCOMPLETION_PREFIX.search(prefix)
         or NEGATING_SUFFIX.search(suffix)
+        or NONCOMPLETION_SUFFIX.search(suffix)
         or NONASSERTIVE_SUFFIX.search(suffix)
     )
 

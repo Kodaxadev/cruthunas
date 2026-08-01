@@ -144,6 +144,61 @@ def test_requirement_or_future_language_is_not_reported(tmp_path: Path, text: st
 @pytest.mark.parametrize(
     "text",
     [
+        "Independent reproduction is yet to be performed.\n",
+        "External review has yet to occur.\n",
+        "External review remains outstanding.\n",
+        "An independent verifier failed to check the census.\n",
+        "An independent verifier was unable to check the census.\n",
+        "Independent reproduction was attempted but failed.\n",
+        "No evidence of independent reproduction exists.\n",
+        "The result is expected to be independently reproduced.\n",
+        "The result is intended to be independently reproduced.\n",
+        "The result is scheduled to be independently reproduced.\n",
+    ],
+)
+def test_noncompletion_independence_language_is_not_reported(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    _write_fixture(tmp_path, text)
+
+    assert not _gaps(tmp_path, "identity.unstructured_assertion")
+
+
+@pytest.mark.parametrize(
+    "text, expected_phrase",
+    [
+        (
+            "The result was independently reproduced as required.\n",
+            "independently reproduced",
+        ),
+        (
+            "Independent reproduction was completed.\n",
+            "independent reproduction",
+        ),
+        (
+            "The independent verifier successfully checked the census.\n",
+            "independent verifier",
+        ),
+    ],
+)
+def test_completed_independence_controls_are_reported(
+    tmp_path: Path,
+    text: str,
+    expected_phrase: str,
+) -> None:
+    _write_fixture(tmp_path, text)
+
+    gaps = _gaps(tmp_path, "identity.unstructured_assertion")
+
+    assert len(gaps) == 1
+    assert gaps[0].details is not None
+    assert expected_phrase in gaps[0].details["phrases"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "The estimate holds independently of q.\n",
         "Choose x and y independently from the same distribution.\n",
         "The variables x and y are independent.\n",

@@ -13,19 +13,17 @@ INDEPENDENCE_ACTION = (
     r"cross-?checked|checked|audited|reviewed|recomputed|validated|replicated|"
     r"confirmed|established|refereed|closed"
 )
-ASSERTION_PATTERNS = (
+NOUN_ASSERTION_PATTERNS = (
     re.compile(
         r"\bindependent"
-        r"(?:\s+(?!(?:did|does|do|has|have|had|is|are|was|were|not|never|"
-        r"failed|fails|unable|expected|intended|scheduled|attempted|yet|"
-        r"outstanding|unsuccessfully|abandoned|cancelled|canceled|refused|"
-        r"declined)\b)"
-        r"[A-Za-z0-9_+\-/]+){0,3}\s+"
+        r"(?:\s+[A-Za-z0-9_+\-/]+){0,3}?\s+"
         r"(?:implementations?|verifiers?|reproductions?|reimplementations?|"
         r"certificates?|generators?|checks?|verification\s+frameworks?)\b",
         re.IGNORECASE,
     ),
     re.compile(r"\bexternal\s+reviews?\b", re.IGNORECASE),
+)
+COMPLETED_ACTION_PATTERNS = (
     re.compile(
         rf"\bindependently(?:[\s,;:()\-\u2013\u2014]+)(?:{INDEPENDENCE_ACTION})\b",
         re.IGNORECASE,
@@ -40,6 +38,21 @@ ASSERTION_PATTERNS = (
 SENTENCE_BOUNDARY = re.compile(r"[.!?](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
 CLAUSE_TERMINATOR = re.compile(r"[.!?;](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
 CLAUSE_BOUNDARY = re.compile(r"[.!?;]|\bbut\b|\bhowever\b", re.IGNORECASE)
+INTERROGATIVE_START = re.compile(
+    r"^\s*(?:[-*+>]\s+|#+\s*)?(?:question\s*:|"
+    r"(?:is|are|was|were|has|have|had|do|does|did|can|could|would|should|"
+    r"will|may|might)\b|"
+    r"(?:how|what|when|where|why)\s+"
+    r"(?:is|are|was|were|has|have|had|do|does|did|can|could|would|should|"
+    r"will|may|might)\b)",
+    re.IGNORECASE,
+)
+UNCERTAINTY_PREFIX = re.compile(
+    r"(?:^\s*(?:[-*+>]\s+|#+\s*)?whether\b|"
+    r"\b(?:do|does|did)\s+not\s+know\s+whether\b|"
+    r"\b(?:unclear|uncertain|undetermined|unknown)\s+whether\b)",
+    re.IGNORECASE,
+)
 NEGATING_PREFIX = re.compile(
     r"(?:\b(?:(?:does|do|did)\s+not|doesn't|don't|didn't|cannot|can't)\s+"
     r"(?:establish|constitute|provide|demonstrate|claim)\b.*|"
@@ -94,30 +107,67 @@ NONASSERTIVE_SUFFIX = re.compile(
     r"must|should|shall|will|would|could|can|may|might)\b",
     re.IGNORECASE,
 )
+PROGRESSIVE_PREFIX = re.compile(
+    r"\b(?:is|are|was|were)\s+being\s*$",
+    re.IGNORECASE,
+)
+INFINITIVE_PASSIVE_PREFIX = re.compile(r"\bto\s+be\s*$", re.IGNORECASE)
+COMPLETION_PREDICATE = (
+    r"agrees?|agreed|approves?|approved|checks?|checked|completes?|completed|"
+    r"concludes?|concluded|confirms?|confirmed|covers?|covered|cross-?checks?|"
+    r"cross-?checked|establishes?|established|finishes?|finished|matches?|"
+    r"matched|matching|passes?|passed|performs?|performed|rejects?|rejected|"
+    r"reproduces?|reproduced|succeeds?|succeeded|supports?|supported|validates?|"
+    r"validated|verifies?|verified"
+)
+COMPLETION_AUXILIARY = (
+    r"(?:(?:has|have|had)\s+(?:been\s+)?|(?:is|are|was|were)\s+)"
+)
+COMPLETION_MODIFIERS = r"(?:(?:also|fully|independently|successfully)\s+)*"
+NOUN_COMPLETION_SUFFIX = re.compile(
+    rf"^[\s,;:()\-\u2013\u2014]*"
+    rf"(?:{COMPLETION_AUXILIARY})?{COMPLETION_MODIFIERS}"
+    rf"(?:{COMPLETION_PREDICATE})\b",
+    re.IGNORECASE,
+)
+NOUN_COMPLETION_PREFIX = re.compile(
+    rf"(?:\b{COMPLETION_AUXILIARY}{COMPLETION_MODIFIERS}"
+    rf"(?:{COMPLETION_PREDICATE})\s+(?:against|by|using|with)\s+"
+    r"(?:(?:an?|the|\d+)\s+)?|"
+    r"\bagreement\s+with\s+(?:(?:an?|the)\s+)?)$",
+    re.IGNORECASE,
+)
 
 
-def _sentence_context(line: str, match: re.Match[str]) -> tuple[str, int, int]:
+def _sentence_context(text: str, match: re.Match[str]) -> tuple[str, int, int]:
     start = 0
-    end = len(line)
-    for boundary in SENTENCE_BOUNDARY.finditer(line):
+    end = len(text)
+    for boundary in SENTENCE_BOUNDARY.finditer(text):
         if boundary.end() <= match.start():
             start = boundary.end()
         elif boundary.start() >= match.end():
             end = boundary.end()
             break
-    return line[start:end], match.start() - start, match.end() - start
+    return text[start:end], match.start() - start, match.end() - start
 
 
-def _is_question_context(sentence: str, match_end: int) -> bool:
+def _clause_prefix(sentence: str, match_start: int) -> str:
+    return CLAUSE_BOUNDARY.split(sentence[:match_start])[-1]
+
+
+def _is_question_context(sentence: str, match_start: int, match_end: int) -> bool:
+    prefix = _clause_prefix(sentence, match_start)
+    if INTERROGATIVE_START.search(prefix) or UNCERTAINTY_PREFIX.search(prefix):
+        return True
     terminator = CLAUSE_TERMINATOR.search(sentence, match_end)
     return terminator is not None and terminator.group(0) == "?"
 
 
-def _is_nonassertive(line: str, match: re.Match[str]) -> bool:
-    sentence, match_start, match_end = _sentence_context(line, match)
-    if _is_question_context(sentence, match_end):
+def _is_nonassertive(text: str, match: re.Match[str]) -> bool:
+    sentence, match_start, match_end = _sentence_context(text, match)
+    if _is_question_context(sentence, match_start, match_end):
         return True
-    prefix = CLAUSE_BOUNDARY.split(sentence[:match_start])[-1]
+    prefix = _clause_prefix(sentence, match_start)
     suffix = sentence[match_end : match_end + 100]
     return bool(
         NEGATING_PREFIX.search(prefix)
@@ -126,17 +176,37 @@ def _is_nonassertive(line: str, match: re.Match[str]) -> bool:
         or NEGATING_SUFFIX.search(suffix)
         or NONCOMPLETION_SUFFIX.search(suffix)
         or NONASSERTIVE_SUFFIX.search(suffix)
+        or PROGRESSIVE_PREFIX.search(prefix)
+        or INFINITIVE_PASSIVE_PREFIX.search(prefix)
     )
 
 
-def _affirmative_phrases(line: str) -> set[str]:
+def _noun_has_completion(text: str, match: re.Match[str]) -> bool:
+    sentence, match_start, match_end = _sentence_context(text, match)
+    prefix = _clause_prefix(sentence, match_start)
+    suffix = sentence[match_end : match_end + 120]
+    return bool(
+        NOUN_COMPLETION_PREFIX.search(prefix)
+        or NOUN_COMPLETION_SUFFIX.search(suffix)
+    )
+
+
+def _normalized_phrase(match: re.Match[str]) -> str:
+    return re.sub(r"\s+", " ", match.group(0).strip().casefold())
+
+
+def _affirmative_phrases(text: str) -> set[str]:
     phrases: set[str] = set()
-    for pattern in ASSERTION_PATTERNS:
-        for match in pattern.finditer(line):
-            if _is_nonassertive(line, match):
+    for pattern in NOUN_ASSERTION_PATTERNS:
+        for match in pattern.finditer(text):
+            if _is_nonassertive(text, match) or not _noun_has_completion(text, match):
                 continue
-            phrase = re.sub(r"\s+", " ", match.group(0).strip().casefold())
-            phrases.add(phrase)
+            phrases.add(_normalized_phrase(match))
+    for pattern in COMPLETED_ACTION_PATTERNS:
+        for match in pattern.finditer(text):
+            if _is_nonassertive(text, match):
+                continue
+            phrases.add(_normalized_phrase(match))
     return phrases
 
 
@@ -225,8 +295,7 @@ def _unstructured_identity_gaps(
         if content is None:
             continue
         matched: set[str] = set()
-        for line in content.splitlines():
-            matched.update(_affirmative_phrases(line))
+        matched.update(_affirmative_phrases(content))
         if matched:
             gaps.append(
                 AdoptionGap(

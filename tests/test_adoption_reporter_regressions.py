@@ -168,6 +168,25 @@ def test_question_local_independence_language_is_not_reported(
 @pytest.mark.parametrize(
     "text",
     [
+        "Was the certificate independently regenerated; was it documented?\n",
+        "Question: was the certificate independently regenerated; status unknown.\n",
+        "Whether the certificate was independently regenerated remains unknown.\n",
+        "We do not know whether the certificate was independently regenerated.\n",
+        "It is unclear whether the certificate was independently regenerated.\n",
+    ],
+)
+def test_interrogative_or_uncertain_independence_language_is_not_reported(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    _write_fixture(tmp_path, text)
+
+    assert not _gaps(tmp_path, "identity.unstructured_assertion")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "Independent reproduction is yet to be performed.\n",
         "External review has yet to occur.\n",
         "External review remains outstanding.\n",
@@ -184,6 +203,20 @@ def test_question_local_independence_language_is_not_reported(
         "Independent reproduction was abandoned.\n",
         "External review was cancelled.\n",
         "An independent verifier refused to check the census.\n",
+        "An independent verifier may check the census.\n",
+        "An independent verifier should check the census.\n",
+        "An independent verifier will check the census.\n",
+        "An independent verifier plans to check the census.\n",
+        "An independent verifier hopes to check the census.\n",
+        "An independent verifier is scheduled to check the census.\n",
+        "External review is scheduled for Monday.\n",
+        "Independent reproduction is underway.\n",
+        "External review is in progress.\n",
+        "The certificate is being independently regenerated.\n",
+        "The certificate is being regenerated independently.\n",
+        "The census may be checked by an independent verifier.\n",
+        "The census is being checked by an independent verifier.\n",
+        "The team hopes to be independently verified.\n",
     ],
 )
 def test_noncompletion_independence_language_is_not_reported(
@@ -209,6 +242,42 @@ def test_noncompletion_independence_language_is_not_reported(
         (
             "The independent verifier successfully checked the census.\n",
             "independent verifier",
+        ),
+        (
+            "The independent verifier checked the census.\n",
+            "independent verifier",
+        ),
+        (
+            "External review concluded successfully.\n",
+            "external review",
+        ),
+        (
+            "The certificate was independently regenerated.\n",
+            "independently regenerated",
+        ),
+        (
+            "The verifier independently checked the census.\n",
+            "independently checked",
+        ),
+        (
+            "The verifier has independently checked the census.\n",
+            "independently checked",
+        ),
+        (
+            "The census was checked by an independent verifier.\n",
+            "independent verifier",
+        ),
+        (
+            "The generator was cross-checked against the independent implementation.\n",
+            "independent implementation",
+        ),
+        (
+            "The independent verifier\nrejected both rows.\n",
+            "independent verifier",
+        ),
+        (
+            "Independent Python generators; matching trajectory digest.\n",
+            "independent python generators",
         ),
     ],
 )

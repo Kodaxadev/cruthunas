@@ -89,6 +89,14 @@ def test_simple_historical_ids_keep_lossless_punctuation_boundaries(tmp_path: Pa
             "The certificate was not required and was independently regenerated.\n",
             "independently regenerated",
         ),
+        (
+            "The certificate was independently regenerated. Was the process documented?\n",
+            "independently regenerated",
+        ),
+        (
+            "The certificate was independently regenerated; was the process documented?\n",
+            "independently regenerated",
+        ),
     ],
 )
 def test_affirmative_independence_variants_are_reported(
@@ -144,6 +152,22 @@ def test_requirement_or_future_language_is_not_reported(tmp_path: Path, text: st
 @pytest.mark.parametrize(
     "text",
     [
+        "Was the certificate independently regenerated? The status remains unknown.\n",
+        "Question: can the certificate be independently regenerated? Status unknown.\n",
+    ],
+)
+def test_question_local_independence_language_is_not_reported(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    _write_fixture(tmp_path, text)
+
+    assert not _gaps(tmp_path, "identity.unstructured_assertion")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "Independent reproduction is yet to be performed.\n",
         "External review has yet to occur.\n",
         "External review remains outstanding.\n",
@@ -154,6 +178,12 @@ def test_requirement_or_future_language_is_not_reported(tmp_path: Path, text: st
         "The result is expected to be independently reproduced.\n",
         "The result is intended to be independently reproduced.\n",
         "The result is scheduled to be independently reproduced.\n",
+        "The certificate is expected after review to be independently regenerated.\n",
+        "The certificate is scheduled next week to be independently reproduced.\n",
+        "The result is intended, after cleanup, to be independently verified.\n",
+        "Independent reproduction was abandoned.\n",
+        "External review was cancelled.\n",
+        "An independent verifier refused to check the census.\n",
     ],
 )
 def test_noncompletion_independence_language_is_not_reported(

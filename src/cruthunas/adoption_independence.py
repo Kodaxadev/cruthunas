@@ -18,7 +18,8 @@ ASSERTION_PATTERNS = (
         r"\bindependent"
         r"(?:\s+(?!(?:did|does|do|has|have|had|is|are|was|were|not|never|"
         r"failed|fails|unable|expected|intended|scheduled|attempted|yet|"
-        r"outstanding|unsuccessfully)\b)"
+        r"outstanding|unsuccessfully|abandoned|cancelled|canceled|refused|"
+        r"declined)\b)"
         r"[A-Za-z0-9_+\-/]+){0,3}\s+"
         r"(?:implementations?|verifiers?|reproductions?|reimplementations?|"
         r"certificates?|generators?|checks?|verification\s+frameworks?)\b",
@@ -36,6 +37,8 @@ ASSERTION_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+SENTENCE_BOUNDARY = re.compile(r"[.!?](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
+CLAUSE_TERMINATOR = re.compile(r"[.!?;](?=[\"'\u201d\u2019)\]]*(?:\s|$))")
 CLAUSE_BOUNDARY = re.compile(r"[.!?;]|\bbut\b|\bhowever\b", re.IGNORECASE)
 NEGATING_PREFIX = re.compile(
     r"(?:\b(?:(?:does|do|did)\s+not|doesn't|don't|didn't|cannot|can't)\s+"
@@ -58,8 +61,10 @@ GOVERNING_REQUIREMENT_PREFIX = re.compile(
 )
 NONCOMPLETION_PREFIX = re.compile(
     r"(?:\bno\s+(?:evidence|record|documentation|proof)\s+of\s*|"
-    r"\b(?:(?:is|are|was|were)\s+)?(?:failed|unable|expected|intended|"
-    r"scheduled|planned|attempted)\s+(?:to\s+be|to)\s*)$",
+    r"\b(?:(?:is|are|was|were)\s+)?(?:failed|unable|attempted)\s+"
+    r"(?:to\s+be|to)\s*|"
+    r"\b(?:expected|intended|scheduled|planned)\b.{0,80}\bto"
+    r"(?:\s+be)?\s*)$",
     re.IGNORECASE,
 )
 NEGATING_SUFFIX = re.compile(
@@ -75,6 +80,9 @@ NONCOMPLETION_SUFFIX = re.compile(
     r"(?:is|are|was|were|has|have|had)\s+yet\s+to\b|"
     r"remains?\s+(?:outstanding|unfinished|incomplete|unperformed)\b|"
     r"(?:(?:is|are|was|were)\s+)?(?:failed|unable)\s+to\b|"
+    r"(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+"
+    r"(?:abandoned|cancelled|canceled)\b|"
+    r"(?:refused|declined)\s+to\b|"
     r"unsuccessfully\b|"
     r"(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+attempted\b"
     r".*\bbut\s+(?:failed|did\s+not\s+succeed)\b)",
@@ -88,11 +96,29 @@ NONASSERTIVE_SUFFIX = re.compile(
 )
 
 
+def _sentence_context(line: str, match: re.Match[str]) -> tuple[str, int, int]:
+    start = 0
+    end = len(line)
+    for boundary in SENTENCE_BOUNDARY.finditer(line):
+        if boundary.end() <= match.start():
+            start = boundary.end()
+        elif boundary.start() >= match.end():
+            end = boundary.end()
+            break
+    return line[start:end], match.start() - start, match.end() - start
+
+
+def _is_question_context(sentence: str, match_end: int) -> bool:
+    terminator = CLAUSE_TERMINATOR.search(sentence, match_end)
+    return terminator is not None and terminator.group(0) == "?"
+
+
 def _is_nonassertive(line: str, match: re.Match[str]) -> bool:
-    if line.rstrip().endswith("?"):
+    sentence, match_start, match_end = _sentence_context(line, match)
+    if _is_question_context(sentence, match_end):
         return True
-    prefix = CLAUSE_BOUNDARY.split(line[: match.start()])[-1]
-    suffix = line[match.end() : match.end() + 100]
+    prefix = CLAUSE_BOUNDARY.split(sentence[:match_start])[-1]
+    suffix = sentence[match_end : match_end + 100]
     return bool(
         NEGATING_PREFIX.search(prefix)
         or GOVERNING_REQUIREMENT_PREFIX.search(prefix)

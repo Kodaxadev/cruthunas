@@ -44,6 +44,9 @@ from cruthunas.adoption_independence import _affirmative_phrases
         "The result was independently verified, independently reproduced, and independently checked, as reported by the authors.",
         "<!--\nContext\n\nIndependent review was completed.\n-->",
         "<!--\nContext\n\nIndependent review was completed.",
+        "Independent review was completed and independent verification was completed, according to the authors.",
+        "Independent audit concluded successfully and independent review was completed, reportedly.",
+        "The independent reviewer checked the proof and the independent auditor confirmed the result, as reported by the authors.",
     ],
 )
 def test_eighth_cycle_nonassertions_are_excluded(text: str) -> None:
@@ -127,3 +130,51 @@ def test_visible_prose_after_multiline_html_comment_is_scanned() -> None:
     )
 
     assert _affirmative_phrases(text) == {"independently verified"}
+
+
+def test_contrast_resets_preposed_attribution_for_process_nouns() -> None:
+    text = (
+        "According to the authors, independent review was completed, but "
+        "independent verification was completed directly by the team."
+    )
+
+    assert _affirmative_phrases(text) == {"independent verification"}
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        (
+            "Independent review was completed; independent verification was "
+            "completed, reportedly.",
+            {"independent review"},
+        ),
+        (
+            "Independent review was completed, and the committee said independent "
+            "verification was completed, reportedly.",
+            {"independent review"},
+        ),
+        (
+            "Independent review was completed.\n\nIndependent verification was "
+            "completed, reportedly.",
+            {"independent review"},
+        ),
+    ],
+)
+def test_noun_attribution_stops_at_unsupported_boundaries(
+    text: str,
+    expected: set[str],
+) -> None:
+    assert _affirmative_phrases(text) == expected
+
+
+def test_coordinated_completed_nouns_remain_affirmative_without_exclusion() -> None:
+    text = (
+        "Independent review was completed and independent verification was "
+        "completed directly by the team."
+    )
+
+    assert _affirmative_phrases(text) == {
+        "independent review",
+        "independent verification",
+    }

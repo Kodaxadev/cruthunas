@@ -78,6 +78,10 @@ ATTRIBUTION_SUFFIX = _ci(
     rf"(?:the\s+)?(?:{ATTRIBUTOR})\s+(?:{REPORTING})\b|(?:allegedly|apparently|possibly|"
     r"probably|purportedly|reportedly|supposedly)\b)"
 )
+POSTPOSED_NOUN_TAIL = _ci(
+    r"^\s*(?:(?:an?|the|this|that|these|those)\s+)?"
+    r"(?:[A-Za-z0-9_-]+\s*){1,6},"
+)
 NEGATING_SUFFIX = _ci(r"^[\s,()\-\u2013\u2014]*(?:(?:is|are|was|were|has|have|had|"
                       r"does|do|did)\s+(?:not|never)|cannot|can't|failed\b)")
 NONCOMPLETION_SUFFIX = _ci(
@@ -93,6 +97,11 @@ COORDINATION = _ci(
     r"^\s*(?:(?:,\s*)?(?:and|or)\s+(?:(?:also|again|then|separately|"
     r"subsequently)\s+)?|(?:,\s*)?nor(?:\s+(?:was|were|is|are|has|have|had)"
     r"\s+(?:it|they)|\s+(?:[A-Za-z0-9_-]+\s+){1,5})?\s+|,\s*)$"
+)
+NOUN_COORDINATION = _ci(
+    r"^\s*(?:(?:(?:an?|the|this|that|these|those)\s+)?"
+    r"(?:[A-Za-z0-9_-]+\s+){1,6})?(?:,\s*)?(?:and|or|nor)\s+"
+    r"(?:(?:an?|the)\s+)?$"
 )
 
 INDEPENDENT_NOUN = r"\bindependent(?:\s+[A-Za-z0-9_+\-/]+){0,3}?\s+"
@@ -118,6 +127,9 @@ PROCESS_SUFFIX = _ci(rf"^[\s,;()\-\u2013\u2014]*(?:(?:has|have|had)\s+(?:been\s+
                      r"(?:approved|completed|concluded|confirmed|finished|found|performed|succeeded))\b")
 ARTIFACT_SUFFIX = _ci(rf"^[\s,;()\-\u2013\u2014]*{MODIFIER}(?:{PAST_ACTION}|{RESULT})\b")
 SUBJECT_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+\-/]*")
+NOUN_SUBJECT_COORDINATOR = _ci(
+    r"(?:,\s*|\b(?:and|or|nor)\b\s+(?:(?:an?|the)\s+)?)$"
+)
 DETERMINERS = {"a", "all", "an", "both", "each", "eight", "every", "five", "four", "nine", "one", "seven", "six", "ten", "that", "the", "these", "this", "those", "three", "two"}
 ORDINALS = {"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"}
 EMBEDDERS = {"about", "concerning", "for", "of", "regarding", "toward", "towards"}
@@ -128,10 +140,13 @@ NOUN_HEDGES = {"alleged", "allegedly", "apparent", "apparently", "claimed", "pos
 
 
 @dataclass(frozen=True)
-class ActionCandidate:
+class AssertionCandidate:
     start: int
     end: int
+    completion_end: int
     phrase: str
+    kind: str
+    noun_hedged: bool = False
 
 
 def _sentence_context(text: str, start_at: int, end_at: int) -> tuple[str, int, int]:
@@ -166,32 +181,67 @@ def _directly_excluded(sentence: str, start: int, end: int) -> bool:
     ))
 
 
-def _action_candidates(text: str) -> list[ActionCandidate]:
+def _action_candidates(text: str) -> list[AssertionCandidate]:
     matches = [match for pattern in (FORWARD_ACTION, REVERSE_ACTION) for match in pattern.finditer(text)]
-    candidates: list[ActionCandidate] = []
+    candidates: list[AssertionCandidate] = []
     for match in sorted(matches, key=lambda item: (item.start(), -(item.end() - item.start()))):
         if candidates and match.start() < candidates[-1].end:
             continue
         phrase = re.sub(r"\s+", " ", match.group(0).strip().casefold())
-        candidates.append(ActionCandidate(match.start(), match.end(), phrase))
+        candidates.append(AssertionCandidate(
+            match.start(), match.end(), match.end(), phrase, "action",
+        ))
     return candidates
 
 
-def _action_exclusions(text: str, candidates: list[ActionCandidate]) -> list[bool]:
+def _supported_coordination(
+    text: str,
+    left: AssertionCandidate,
+    right: AssertionCandidate,
+) -> bool:
+    bridge = text[left.completion_end:right.start]
+    if COORDINATION.fullmatch(bridge):
+        return True
+    return left.kind != "action" and right.kind != "action" and bool(
+        NOUN_COORDINATION.fullmatch(bridge)
+    )
+
+
+def _has_postposed_scope(sentence: str, end: int, kind: str) -> bool:
+    suffix = sentence[end:end + 140]
+    if ATTRIBUTION_SUFFIX.search(suffix):
+        return True
+    if kind == "action":
+        return False
+    nominal_tail = POSTPOSED_NOUN_TAIL.match(suffix)
+    return bool(nominal_tail and ATTRIBUTION_SUFFIX.search(
+        suffix[nominal_tail.end() - 1:],
+    ))
+
+
+def _candidate_exclusions(text: str, candidates: list[AssertionCandidate]) -> list[bool]:
     excluded: list[bool] = []
     postposed: list[bool] = []
     for index, candidate in enumerate(candidates):
-        sentence, start, end = _sentence_context(text, candidate.start, candidate.end)
-        direct = _directly_excluded(sentence, start, end)
-        postposed.append(bool(ATTRIBUTION_SUFFIX.search(sentence[end:end + 140])))
+        sentence, start, end = _sentence_context(
+            text, candidate.start, candidate.completion_end,
+        )
+        has_postposed = _has_postposed_scope(sentence, end, candidate.kind)
+        direct = (
+            candidate.noun_hedged
+            or _directly_excluded(sentence, start, end)
+            or has_postposed
+        )
+        postposed.append(has_postposed)
         if not direct and index:
             prior = candidates[index - 1]
-            if COORDINATION.fullmatch(text[prior.end:candidate.start]):
+            if _supported_coordination(text, prior, candidate):
                 direct = excluded[index - 1]
         excluded.append(direct)
     for index in range(len(candidates) - 2, -1, -1):
-        bridge = text[candidates[index].end:candidates[index + 1].start]
-        if postposed[index + 1] and COORDINATION.fullmatch(bridge):
+        if postposed[index + 1] and _supported_coordination(
+            text, candidates[index], candidates[index + 1],
+        ):
             excluded[index] = True
             postposed[index] = True
     return excluded
@@ -203,6 +253,8 @@ def _noun_context(text: str, match: re.Match[str]) -> tuple[str, str, str, int, 
 
 
 def _has_noun_subject(prefix: str) -> bool:
+    if NOUN_SUBJECT_COORDINATOR.search(prefix):
+        return True
     cell = re.sub(r"^\s*(?:[-+>]\s+|#+\s*)?", "", prefix.rsplit("|", 1)[-1]).strip()
     tokens = SUBJECT_TOKEN.findall(cell)
     if SUBJECT_TOKEN.sub("", cell).strip(" \t_`") or any(t.casefold() in EMBEDDERS for t in tokens):
@@ -215,19 +267,34 @@ def _has_noun_subject(prefix: str) -> bool:
                                     t.casefold().endswith(MODIFIER_SUFFIXES) for t in tokens)
 
 
-def _noun_has_completion(text: str, match: re.Match[str], kind: str) -> bool:
-    sentence, prefix, suffix, start, end = _noun_context(text, match)
-    if _directly_excluded(sentence, start, end):
-        return False
+def _noun_candidate(
+    text: str,
+    match: re.Match[str],
+    kind: str,
+) -> AssertionCandidate | None:
+    _, prefix, suffix, _, _ = _noun_context(text, match)
     subject = _has_noun_subject(prefix)
-    if subject and any(token.casefold() in NOUN_HEDGES for token in SUBJECT_TOKEN.findall(prefix)):
-        return False
+    completion: re.Match[str] | None = None
     if kind == "process":
-        return subject and bool(PROCESS_SUFFIX.search(suffix))
-    if subject:
-        return bool((ACTOR_SUFFIX if kind == "actor" else ARTIFACT_SUFFIX).search(suffix))
-    passive = PASSIVE_PREFIX.search(prefix) or AGREEMENT_PREFIX.search(prefix)
-    return not MODAL.search(prefix) and bool(passive)
+        if not subject:
+            return None
+        completion = PROCESS_SUFFIX.search(suffix)
+    elif subject:
+        completion = (ACTOR_SUFFIX if kind == "actor" else ARTIFACT_SUFFIX).search(suffix)
+    elif not MODAL.search(prefix) and (PASSIVE_PREFIX.search(prefix) or AGREEMENT_PREFIX.search(prefix)):
+        completion_end = match.end()
+    else:
+        return None
+    if subject and completion is None:
+        return None
+    if completion is not None:
+        completion_end = match.end() + completion.end()
+    hedged = subject and any(
+        token.casefold() in NOUN_HEDGES for token in SUBJECT_TOKEN.findall(prefix)
+    )
+    return AssertionCandidate(
+        match.start(), match.end(), completion_end, _normalized(match), kind, hedged,
+    )
 
 
 def _normalized(match: re.Match[str]) -> str:
@@ -237,13 +304,15 @@ def _normalized(match: re.Match[str]) -> str:
 def _affirmative_phrases(text: str, *, markdown: bool = True) -> set[str]:
     phrases: set[str] = set()
     for block in prose_blocks(text, markdown=markdown):
+        candidates = _action_candidates(block)
         for pattern, kind in ((ACTOR_NOUN, "actor"), (ARTIFACT_NOUN, "artifact"),
                               (PROCESS_NOUN, "process")):
             for match in pattern.finditer(block):
-                if _noun_has_completion(block, match, kind):
-                    phrases.add(_normalized(match))
-        candidates = _action_candidates(block)
-        for candidate, excluded in zip(candidates, _action_exclusions(block, candidates)):
+                candidate = _noun_candidate(block, match, kind)
+                if candidate is not None:
+                    candidates.append(candidate)
+        candidates.sort(key=lambda candidate: (candidate.start, candidate.end))
+        for candidate, excluded in zip(candidates, _candidate_exclusions(block, candidates)):
             if not excluded:
                 phrases.add(candidate.phrase)
     return phrases
